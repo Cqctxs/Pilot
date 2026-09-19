@@ -1,0 +1,31 @@
+{
+  "name": "pilot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Compile any website into a reusable data API",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "bin": {
+    "pilot": "./dist/cli/main.js"
+  },
+  "scripts": {
+    "pilot": "tsx src/cli/main.ts",
+    "testboard": "tsx src/cli/main.ts testboard",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "openai": "7.20.0",
+    "playwright": "1.63.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.6",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vitest": "5.0.1"
+  }
+}
