@@ -1,5 +1,7 @@
 # Pilot
 
+> **Current HackMIT build scope:** See [the Pilot developer-tool MVP specification](HACKATHON_MVP_SPEC.md) for the implementation contract: explicit targets, CLI package/category installation, AI generation and repair, and publishing Pilots for reuse. Job boards are the single demo capability; the examples below describe the broader vision.
+
 > **A universal compatibility layer for software.**
 
 ### One-line pitch
