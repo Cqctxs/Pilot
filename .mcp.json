@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pilot": {
+      "command": "npx",
+      "args": ["tsx", "src/cli/main.ts", "mcp"]
+    }
+  }
+}

@@ -18,12 +18,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "mongodb": "^7.6.0",
     "openai": "7.20.0",
     "playwright": "1.63.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/node": "24.13.6",
+    "mongodb-memory-server": "^11.2.0",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
     "vitest": "5.0.1"

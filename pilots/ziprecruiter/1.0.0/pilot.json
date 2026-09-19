@@ -1,0 +1,76 @@
+{
+  "pilotFormatVersion": 2,
+  "id": "ziprecruiter",
+  "version": "1.0.0",
+  "target": {
+    "name": "ZipRecruiter",
+    "url": "https://www.ziprecruiter.com/jobs-search?search=software+intern&location=Boston%2C+MA"
+  },
+  "capability": "jobs.board@1",
+  "schema": {
+    "name": "jobs.board@1",
+    "fields": [
+      {
+        "name": "title",
+        "type": "string",
+        "required": true,
+        "description": "The job title as posted"
+      },
+      {
+        "name": "company",
+        "type": "string",
+        "required": true,
+        "description": "Hiring company name"
+      },
+      {
+        "name": "location",
+        "type": "string",
+        "required": false,
+        "description": "Work location, or 'Remote'"
+      },
+      {
+        "name": "url",
+        "type": "url",
+        "required": true,
+        "description": "Link to the full posting"
+      },
+      {
+        "name": "employmentType",
+        "type": "string",
+        "required": false,
+        "description": "Raw employment type as the site labels it, e.g. 'Internship', 'Full-time'"
+      },
+      {
+        "name": "postedAt",
+        "type": "string",
+        "required": false,
+        "description": "When the job was posted, as shown"
+      }
+    ]
+  },
+  "artifact": {
+    "kind": "script",
+    "entry": "extract.mjs",
+    "needsBrowser": true
+  },
+  "discovered": [
+    "pay",
+    "shortDescription",
+    "locationTypes",
+    "companyLogo",
+    "benefits"
+  ],
+  "origin": "ai-generated",
+  "createdAt": "2026-09-19T23:31:26.008Z",
+  "compiler": {
+    "model": "gpt-5.5",
+    "attempts": 1,
+    "steps": 26,
+    "repairedFrom": null
+  },
+  "evidence": {
+    "recordCount": 20,
+    "checkedAt": "2026-09-19T23:31:26.008Z",
+    "sampleFile": "sample.json"
+  }
+}

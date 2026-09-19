@@ -36,6 +36,16 @@ const HELP = `Pilot — compile any website into a reusable data API.
   pilot repair <id>             Recompile a Pilot whose site changed
   pilot testboard               Serve the local job board used for testing
 
+  pilot publish <id>            Push a compiled Pilot to the shared registry
+  pilot install <id>[@version]  Install one from the registry
+  pilot registry list           Every published Pilot, newest version
+  pilot registry search <text>  Find a Pilot by site, capability, or field
+  pilot registry versions <id>  Published versions of one Pilot
+  pilot registry health [id]    Success rate per Pilot, worst first
+
+  pilot mcp                     Serve Pilot over MCP (stdio) to Claude Code,
+                                Codex, or any other MCP client
+
 Examples:
   pilot search                        every enabled Pilot
   pilot search indeed                 just Indeed
@@ -78,6 +88,25 @@ async function main(): Promise<number> {
       return runSearch(env, args);
     case "repair":
       return runRepair(env, args);
+    case "publish": {
+      const { runPublish } = await import("./registry.js");
+      return runPublish(env, args);
+    }
+    case "install": {
+      const { runInstall } = await import("./registry.js");
+      return runInstall(env, args);
+    }
+    case "registry": {
+      const { runRegistry } = await import("./registry.js");
+      return runRegistry(env, args);
+    }
+    case "mcp": {
+      // Stdio transport: stdout is the JSON-RPC stream from here on. Anything
+      // this process prints to it corrupts the protocol.
+      const { startMcpServer } = await import("../mcp/server.js");
+      await startMcpServer(env);
+      return -1; // the transport owns the process now
+    }
     case "testboard": {
       const { startTestBoard } = await import("../testboard/server.js");
       const port = flagNumber(args, "port") ?? env.testBoardPort;

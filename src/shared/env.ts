@@ -44,6 +44,11 @@ export interface PilotEnv {
   /** Local job board used for controlled end-to-end tests. */
   testBoardPort: number;
   testBoardUrl: string;
+  /** Shared Pilot registry (MongoDB). Null when unset — everything else still works. */
+  registryUri: string | null;
+  registryDb: string;
+  /** Recorded as the publisher of a Pilot and the reporter of health events. */
+  publisher: string;
 }
 
 let envFileLoaded = false;
@@ -77,5 +82,8 @@ export function loadEnv(): PilotEnv {
     compilerModel: process.env.PILOT_COMPILER_MODEL?.trim() || null,
     testBoardPort,
     testBoardUrl: envString("PILOT_TESTBOARD_URL", `http://127.0.0.1:${testBoardPort}`),
+    registryUri: process.env.PILOT_REGISTRY_URI?.trim() || null,
+    registryDb: envString("PILOT_REGISTRY_DB", "pilot"),
+    publisher: envString("PILOT_PUBLISHER", "anonymous"),
   };
 }
