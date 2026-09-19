@@ -1,23 +1,27 @@
 /**
  * The compiler: a URL goes in, a tested Pilot comes out.
  *
- *   observe → generate → validate → (retry with the failure) → save
+ *   explore (agentic) → submit script → validate against the live site → retry
  *
- * The retry loop is the important part. A single model call that produces
- * plausible-looking JSON is not a compiler; a loop that refuses to emit a Pilot
- * until it has pulled real records off the real site is.
+ * The model drives a real browser through a narrow tool surface, tests its
+ * extraction in the page, and submits a script. That script is then run for
+ * real. A Pilot is written only after a run produces records that satisfy the
+ * schema — there is no path that produces an unvalidated Pilot.
  */
-import { parseRecipe, type Recipe } from "../shared/recipe.js";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import type { DataSchema, RawRecord } from "../shared/schema.js";
 import type { Pilot } from "../shared/pilot.js";
+import type { ScriptQuery } from "../runtime/script.js";
 import { pilotError } from "../shared/errors.js";
 import { loadEnv, type PilotEnv } from "../shared/env.js";
-import { observe, type Observation } from "./observe.js";
 import { createModelClient, type ModelClient } from "./model.js";
-import { buildRepairPrompt, buildRetryPrompt, buildUserPrompt, SYSTEM_PROMPT } from "./prompts.js";
-import { validateRecipe } from "./validate.js";
+import { openExplorer, type Explorer } from "./explorer.js";
+import { EXPLORER_TOOLS } from "./tools.js";
+import { buildRepairPrompt, buildRetryPrompt, buildTaskPrompt, SYSTEM_PROMPT } from "./prompts.js";
+import { validateScript } from "./validate.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 3;
+export const DEFAULT_MAX_STEPS = 30;
 
 export interface CompileOptions {
   url: string;
@@ -25,150 +29,288 @@ export interface CompileOptions {
   name?: string;
   capability: string | null;
   schema: DataSchema;
-  /** Sample query used while validating, so the recipe is tested the way it will be used. */
-  variables?: Record<string, string | number>;
+  /** Query the script is tested with, so it is proven the way it will be used. */
+  query?: Partial<ScriptQuery>;
   maxAttempts?: number;
+  maxSteps?: number;
+  headless?: boolean;
   env?: PilotEnv;
   onProgress?: (message: string) => void;
 }
 
 export interface CompileResult {
   pilot: Pilot;
+  code: string;
   records: RawRecord[];
   attempts: number;
+  steps: number;
 }
 
 export async function compile(options: CompileOptions): Promise<CompileResult> {
   const env = options.env ?? loadEnv();
   const model = createModelClient(env);
   const progress = options.onProgress ?? (() => {});
+  const query = buildQuery(options.query);
 
-  progress(`observing ${options.url}`);
-  const observation = await observe(options.url);
-  progress(
-    observation.json.length > 0
-      ? `found ${observation.json.length} JSON endpoint(s)`
-      : "no JSON endpoints; compiling against the DOM",
-  );
+  const explorer = await openExplorer({ headless: options.headless ?? true });
+  try {
+    const session = await runSession({
+      model,
+      explorer,
+      progress,
+      schema: options.schema,
+      pilotId: options.id,
+      targetUrl: options.url,
+      query,
+      maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+      maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
+      firstPrompt: buildTaskPrompt({
+        url: options.url,
+        schema: options.schema,
+        sampleQuery: describeQuery(query),
+      }),
+    });
 
-  const { recipe, records, attempts } = await generateUntilValid({
-    model,
-    schema: options.schema,
-    variables: options.variables ?? {},
-    maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
-    firstPrompt: buildUserPrompt(options.schema, observation),
-    progress,
-  });
+    const now = new Date().toISOString();
+    const pilot: Pilot = {
+      pilotFormatVersion: 2,
+      id: options.id,
+      version: "1.0.0",
+      target: { name: options.name ?? new URL(options.url).hostname, url: options.url },
+      capability: options.capability,
+      schema: options.schema,
+      artifact: {
+        kind: "script",
+        entry: "extract.mjs",
+        needsBrowser: session.needsBrowser,
+      },
+      discovered: session.discovered,
+      origin: "ai-generated",
+      createdAt: now,
+      compiler: {
+        model: model.model,
+        attempts: session.attempts,
+        steps: session.steps,
+        repairedFrom: null,
+      },
+      evidence: { recordCount: session.records.length, checkedAt: now, sampleFile: "sample.json" },
+    };
 
-  const now = new Date().toISOString();
-  const pilot: Pilot = {
-    pilotFormatVersion: 1,
-    id: options.id,
-    version: "1.0.0",
-    target: { name: options.name ?? new URL(options.url).hostname, url: options.url },
-    capability: options.capability,
-    schema: options.schema,
-    recipe,
-    origin: "ai-generated",
-    createdAt: now,
-    compiler: { model: model.model, attempts, repairedFrom: null },
-    evidence: { recordCount: records.length, checkedAt: now, sampleFile: "sample.json" },
-  };
-
-  return { pilot, records, attempts };
+    return { pilot, code: session.code, records: session.records, attempts: session.attempts, steps: session.steps };
+  } finally {
+    await explorer.close();
+  }
 }
 
 /**
- * Recompile a Pilot whose recipe stopped matching the site. Same loop, but the
- * model is shown what used to work and how it failed.
+ * Recompile a Pilot whose script stopped working. Same loop, but the model is
+ * shown what used to work and how it failed.
  */
 export async function repair(options: {
   pilot: Pilot;
+  previousCode: string;
   failure: string;
-  variables?: Record<string, string | number>;
+  query?: Partial<ScriptQuery>;
   maxAttempts?: number;
+  maxSteps?: number;
   env?: PilotEnv;
   onProgress?: (message: string) => void;
 }): Promise<CompileResult> {
   const env = options.env ?? loadEnv();
   const model = createModelClient(env);
   const progress = options.onProgress ?? (() => {});
+  const query = buildQuery(options.query);
 
-  progress(`re-observing ${options.pilot.target.url}`);
-  const observation: Observation = await observe(options.pilot.target.url);
+  const explorer = await openExplorer();
+  try {
+    const session = await runSession({
+      model,
+      explorer,
+      progress,
+      schema: options.pilot.schema,
+      pilotId: options.pilot.id,
+      targetUrl: options.pilot.target.url,
+      query,
+      maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
+      maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
+      firstPrompt: `${buildRepairPrompt(options.previousCode, options.failure)}
 
-  const { recipe, records, attempts } = await generateUntilValid({
-    model,
-    schema: options.pilot.schema,
-    variables: options.variables ?? {},
-    maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
-    firstPrompt: `${buildRepairPrompt(JSON.stringify(options.pilot.recipe, null, 2), options.failure)}
+${buildTaskPrompt({
+  url: options.pilot.target.url,
+  schema: options.pilot.schema,
+  sampleQuery: describeQuery(query),
+})}`,
+    });
 
-${buildUserPrompt(options.pilot.schema, observation)}`,
-    progress,
-  });
+    const now = new Date().toISOString();
+    const [major, minor] = options.pilot.version.split(".").map(Number);
+    const pilot: Pilot = {
+      ...options.pilot,
+      version: `${major}.${(minor ?? 0) + 1}.0`,
+      artifact: { ...options.pilot.artifact, needsBrowser: session.needsBrowser },
+      discovered: session.discovered,
+      origin: "ai-generated",
+      createdAt: now,
+      compiler: {
+        model: model.model,
+        attempts: session.attempts,
+        steps: session.steps,
+        repairedFrom: options.pilot.version,
+      },
+      evidence: { recordCount: session.records.length, checkedAt: now, sampleFile: "sample.json" },
+    };
 
-  const now = new Date().toISOString();
-  const [major, minor] = options.pilot.version.split(".").map(Number);
-  const pilot: Pilot = {
-    ...options.pilot,
-    version: `${major}.${(minor ?? 0) + 1}.0`,
-    recipe,
-    origin: "ai-generated",
-    createdAt: now,
-    compiler: { model: model.model, attempts, repairedFrom: options.pilot.version },
-    evidence: { recordCount: records.length, checkedAt: now, sampleFile: "sample.json" },
-  };
-
-  return { pilot, records, attempts };
+    return { pilot, code: session.code, records: session.records, attempts: session.attempts, steps: session.steps };
+  } finally {
+    await explorer.close();
+  }
 }
 
-async function generateUntilValid(input: {
+interface SessionResult {
+  code: string;
+  needsBrowser: boolean;
+  discovered: string[];
+  records: RawRecord[];
+  attempts: number;
+  steps: number;
+}
+
+/**
+ * One exploration session. The model keeps the browser across retries, so a
+ * rejected script is corrected with the site still open in front of it rather
+ * than from a cold start.
+ */
+async function runSession(input: {
   model: ModelClient;
-  schema: DataSchema;
-  variables: Record<string, string | number>;
-  maxAttempts: number;
-  firstPrompt: string;
+  explorer: Explorer;
   progress: (message: string) => void;
-}): Promise<{ recipe: Recipe; records: RawRecord[]; attempts: number }> {
-  const expectedFields = input.schema.fields.map((field) => field.name);
-  const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+  schema: DataSchema;
+  pilotId: string;
+  targetUrl: string;
+  query: ScriptQuery;
+  maxAttempts: number;
+  maxSteps: number;
+  firstPrompt: string;
+}): Promise<SessionResult> {
+  const messages: ChatCompletionMessageParam[] = [
+    { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: input.firstPrompt },
   ];
-  const failures: string[] = [];
 
-  for (let attempt = 1; attempt <= input.maxAttempts; attempt += 1) {
-    input.progress(`generating recipe (attempt ${attempt}/${input.maxAttempts})`);
-    const raw = await input.model.complete(SYSTEM_PROMPT, messages);
+  let steps = 0;
+  let attempts = 0;
+  const rejected: string[] = [];
 
-    let recipe: Recipe;
-    try {
-      recipe = parseRecipe(JSON.parse(raw), expectedFields);
-    } catch (cause) {
-      // Shape errors are cheap to catch and cheap to explain, so they never
-      // cost a network round trip against the target site.
-      const problem = (cause as Error).message;
-      failures.push(`attempt ${attempt}: ${problem}`);
-      messages.push({ role: "assistant", content: raw });
-      messages.push({ role: "user", content: buildRetryPrompt(raw, problem) });
+  while (steps < input.maxSteps) {
+    const turn = await input.model.turn(messages, EXPLORER_TOOLS);
+    messages.push(turn.raw);
+
+    if (turn.toolCalls.length === 0) {
+      // No tool call and no script: nudge once rather than ending the session.
+      messages.push({
+        role: "user",
+        content: "Keep going. Use the tools to explore, then call submit_script.",
+      });
+      steps += 1;
       continue;
     }
 
-    input.progress(`validating ${recipe.kind} recipe against the live site`);
-    const report = await validateRecipe(recipe, input.schema, input.variables);
-    if (report.ok) {
-      input.progress(`validated: ${report.records.length} records`);
-      return { recipe, records: report.records, attempts: attempt };
-    }
+    for (const call of turn.toolCalls) {
+      steps += 1;
 
-    const problem = report.problems.join("\n");
-    failures.push(`attempt ${attempt}: ${problem}`);
-    messages.push({ role: "assistant", content: raw });
-    messages.push({ role: "user", content: buildRetryPrompt(raw, problem) });
+      if (call.name === "submit_script") {
+        attempts += 1;
+        const code = String(call.args.code ?? "");
+        const needsBrowser = call.args.needsBrowser !== false;
+        const discovered = Array.isArray(call.args.discoveredFields)
+          ? call.args.discoveredFields.map(String)
+          : [];
+        if (call.args.notes) input.progress(`model: ${String(call.args.notes)}`);
+        input.progress(`validating submitted script (attempt ${attempts}/${input.maxAttempts})`);
+
+        const report = await validateScript({
+          code,
+          needsBrowser,
+          schema: input.schema,
+          pilotId: input.pilotId,
+          targetUrl: input.targetUrl,
+          query: input.query,
+          onLog: (message) => input.progress(`  ${message}`),
+        });
+
+        if (report.ok) {
+          input.progress(`validated: ${report.records.length} records`);
+          return { code, needsBrowser, discovered, records: report.records, attempts, steps };
+        }
+
+        const problems = report.problems.join("\n");
+        rejected.push(`attempt ${attempts}: ${problems}`);
+        input.progress(`rejected: ${report.problems[0] ?? "unknown problem"}`);
+
+        if (attempts >= input.maxAttempts) {
+          throw pilotError(
+            "VALIDATION_FAILED",
+            `Could not compile a working script in ${attempts} attempts:\n${rejected.join("\n")}`,
+          );
+        }
+
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: buildRetryPrompt(problems),
+        });
+        continue;
+      }
+
+      const result = await dispatchTool(input.explorer, call.name, call.args);
+      input.progress(`${call.name}(${summarizeArgs(call.args)})`);
+      messages.push({ role: "tool", tool_call_id: call.id, content: result });
+    }
   }
 
   throw pilotError(
     "VALIDATION_FAILED",
-    `Could not compile a working recipe in ${input.maxAttempts} attempts:\n${failures.join("\n")}`,
+    `Explorer hit the ${input.maxSteps}-step budget without submitting a working script.` +
+      (rejected.length > 0 ? `\nRejected candidates:\n${rejected.join("\n")}` : ""),
   );
+}
+
+async function dispatchTool(
+  explorer: Explorer,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  switch (name) {
+    case "goto":
+      return explorer.goto(String(args.url ?? ""));
+    case "find":
+      return explorer.find(String(args.selector ?? ""), Number(args.limit ?? 3));
+    case "fill":
+      return explorer.fill(String(args.selector ?? ""), String(args.value ?? ""));
+    case "click":
+      return explorer.click(String(args.selector ?? ""));
+    case "evaluate":
+      return explorer.evaluate(String(args.code ?? ""));
+    case "requests":
+      return explorer.requests();
+    default:
+      return `Unknown tool "${name}".`;
+  }
+}
+
+function summarizeArgs(args: Record<string, unknown>): string {
+  const first = Object.values(args)[0];
+  if (typeof first !== "string") return "";
+  return first.length > 60 ? `${first.slice(0, 60)}…` : first;
+}
+
+function buildQuery(query: Partial<ScriptQuery> | undefined): ScriptQuery {
+  return { keywords: "", location: "", limit: null, ...query };
+}
+
+function describeQuery(query: ScriptQuery): string {
+  const parts: string[] = [];
+  if (query.keywords) parts.push(`keywords="${query.keywords}"`);
+  if (query.location) parts.push(`location="${query.location}"`);
+  return parts.join(", ");
 }

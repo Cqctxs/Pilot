@@ -1,40 +1,47 @@
 /**
  * The single entry point for running a compiled Pilot.
  *
- * Nothing below this line calls a model. Once a Pilot exists, searching is
+ * Nothing reachable from here calls a model. Once a Pilot exists, searching is
  * ordinary deterministic code — that is the whole point of compiling.
  */
-import type { Pilot } from "../shared/pilot.js";
+import type { LoadedPilot } from "../pilots/store.js";
 import type { RawRecord } from "../shared/schema.js";
-import { executeHttpJsonRecipe } from "./http-json.js";
-import { executeBrowserRecipe } from "./browser.js";
+import { runScript, type ScriptQuery } from "./script.js";
 
 export interface ExecuteOptions {
-  /** Bound into the recipe's URL template: query terms, tenant slugs, page numbers. */
-  variables?: Record<string, string | number>;
-  signal?: AbortSignal;
+  query?: Partial<ScriptQuery>;
+  timeoutMs?: number;
+  onLog?: (message: string) => void;
 }
 
 export async function executePilot(
-  pilot: Pilot,
+  loaded: LoadedPilot,
   options: ExecuteOptions = {},
 ): Promise<RawRecord[]> {
-  const variables = options.variables ?? {};
-  const records =
-    pilot.recipe.kind === "http-json"
-      ? await executeHttpJsonRecipe(pilot.recipe, variables, { signal: options.signal })
-      : await executeBrowserRecipe(pilot.recipe, variables);
-  return records.map((record) => coerce(record, pilot));
+  const query: ScriptQuery = {
+    keywords: "",
+    location: "",
+    limit: null,
+    ...loaded.config.variables,
+    ...options.query,
+  };
+
+  const records = await runScript(loaded.pilot, loaded.dir, query, {
+    timeoutMs: options.timeoutMs,
+    onLog: options.onLog,
+  });
+
+  return records.map((record) => coerce(record, loaded));
 }
 
 /** Resolve relative URLs against the target so callers always get a clickable link. */
-function coerce(record: RawRecord, pilot: Pilot): RawRecord {
+function coerce(record: RawRecord, loaded: LoadedPilot): RawRecord {
   const out: RawRecord = { ...record };
-  for (const field of pilot.schema.fields) {
+  for (const field of loaded.pilot.schema.fields) {
     const value = out[field.name];
     if (field.type === "url" && value) {
       try {
-        out[field.name] = new URL(value, pilot.target.url).toString();
+        out[field.name] = new URL(value, loaded.pilot.target.url).toString();
       } catch {
         out[field.name] = value;
       }

@@ -13,15 +13,16 @@ export async function runRepair(env: PilotEnv, args: ParsedArgs): Promise<number
   }
 
   const store = new PilotStore(env);
-  const { pilot, config } = store.get(id);
+  const loaded = store.get(id);
+  const previousCode = store.readScript(id);
 
   // Reproduce the failure first. Repairing a Pilot that still works would
-  // replace a known-good recipe with an unproven one.
+  // replace a known-good script with an unproven one.
   let failure = flagString(args, "failure");
   if (!failure) {
-    process.stderr.write(`  reproducing the failure\n`);
+    process.stderr.write("  reproducing the failure\n");
     try {
-      const records = await executePilot(pilot, { variables: config.variables });
+      const records = await executePilot(loaded);
       process.stdout.write(`${id} still works (${records.length} records). Nothing to repair.\n`);
       return 0;
     } catch (cause) {
@@ -32,16 +33,18 @@ export async function runRepair(env: PilotEnv, args: ParsedArgs): Promise<number
   }
 
   const result = await repair({
-    pilot,
+    pilot: loaded.pilot,
+    previousCode,
     failure,
-    variables: config.variables,
+    query: { keywords: flagString(args, "query") ?? "" },
     env,
     onProgress: (message) => process.stderr.write(`  ${message}\n`),
   });
 
-  const dir = store.save(result.pilot, result.records.slice(0, 10));
+  const dir = store.save(result.pilot, result.code, result.records.slice(0, 10));
   process.stdout.write(
-    `\nRepaired ${id}: ${pilot.version} → ${result.pilot.version} (${result.attempts} attempt(s))\n` +
+    `\nRepaired ${id}: ${loaded.pilot.version} → ${result.pilot.version} ` +
+      `(${result.steps} steps, ${result.attempts} attempt(s))\n` +
       `  ${result.records.length} records extracted\n  ${dir}\n`,
   );
   return 0;

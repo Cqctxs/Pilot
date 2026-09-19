@@ -78,16 +78,23 @@ export class PilotStore {
     this.pilots = null;
   }
 
-  /** Write a compiled Pilot to `pilots/<id>/<version>/pilot.json`. */
-  save(pilot: Pilot, sample?: unknown): string {
+  /** Write a compiled Pilot and its script to `pilots/<id>/<version>/`. */
+  save(pilot: Pilot, code: string, sample?: unknown): string {
     const dir = path.join(this.env.pilotsDir, pilot.id, pilot.version);
     mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, pilot.artifact.entry), code.endsWith("\n") ? code : `${code}\n`);
     writeFileSync(path.join(dir, "pilot.json"), `${JSON.stringify(pilot, null, 2)}\n`);
     if (sample !== undefined) {
       writeFileSync(path.join(dir, "sample.json"), `${JSON.stringify(sample, null, 2)}\n`);
     }
     this.reload();
     return dir;
+  }
+
+  /** The script source of an installed Pilot, for repair and for reading. */
+  readScript(id: string): string {
+    const loaded = this.get(id);
+    return readFileSync(path.join(loaded.dir, loaded.pilot.artifact.entry), "utf8");
   }
 
   setEnabled(id: string, enabled: boolean): void {

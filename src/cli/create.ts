@@ -6,7 +6,7 @@ import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import type { PilotEnv } from "../shared/env.js";
 import { flagNumber, flagString, type ParsedArgs } from "./args.js";
 
-/** `indeed.com` → `indeed`, `jobs.lever.co` → `lever`. */
+/** `indeed.com` → `indeed`, `www.talent.com` → `talent`. */
 function deriveId(url: string): string {
   const host = new URL(url).hostname.replace(/^www\./, "");
   const parts = host.split(".").filter((part) => part !== "co" && part !== "com");
@@ -44,27 +44,38 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     return 1;
   }
 
-  const query = flagString(args, "query");
   const result = await compile({
     url,
     id,
     name: flagString(args, "name"),
     capability,
     schema,
-    variables: query ? { keywords: query, location: "" } : { keywords: "", location: "" },
+    query: {
+      keywords: flagString(args, "query") ?? "",
+      location: flagString(args, "location") ?? "",
+    },
     maxAttempts: flagNumber(args, "attempts"),
+    maxSteps: flagNumber(args, "steps"),
+    // `--watch` shows the browser, which is the fastest way to see why a
+    // compile is going wrong on a site that fights back.
+    headless: !args.flags.watch,
     env,
     onProgress: (message) => process.stderr.write(`  ${message}\n`),
   });
 
   const store = new PilotStore(env);
-  const dir = store.save(result.pilot, result.records.slice(0, 10));
+  const dir = store.save(result.pilot, result.code, result.records.slice(0, 10));
   store.setEnabled(id, true);
 
+  const transport = result.pilot.artifact.needsBrowser ? "browser" : "http";
   process.stdout.write(
-    `\nCompiled ${id}@${result.pilot.version} (${result.pilot.recipe.kind}, ${result.attempts} attempt(s))\n` +
+    `\nCompiled ${id}@${result.pilot.version} (${transport}, ${result.steps} steps, ${result.attempts} attempt(s))\n` +
       `  ${result.records.length} records extracted\n` +
-      `  ${dir}\n\nTry it:  pilot search ${id}\n`,
+      `  ${dir}\n`,
   );
+  if (result.pilot.discovered.length > 0) {
+    process.stdout.write(`  also available here: ${result.pilot.discovered.join(", ")}\n`);
+  }
+  process.stdout.write(`\nTry it:  pilot search ${id}\n`);
   return 0;
 }

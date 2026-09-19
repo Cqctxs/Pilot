@@ -1,0 +1,34 @@
+[
+  {
+    "title": "Software Engineering Intern",
+    "company": "Pilot Labs",
+    "location": "Cambridge, MA",
+    "url": "http://127.0.0.1:4100/jobs/1",
+    "employmentType": "Internship",
+    "postedAt": "2026-09-02"
+  },
+  {
+    "title": "Data Science Intern",
+    "company": "Pilot Labs",
+    "location": "Toronto, ON",
+    "url": "http://127.0.0.1:4100/jobs/3",
+    "employmentType": "Internship",
+    "postedAt": "2026-09-05"
+  },
+  {
+    "title": "Product Design Intern",
+    "company": "Harbor Robotics",
+    "location": "Boston, MA",
+    "url": "http://127.0.0.1:4100/jobs/5",
+    "employmentType": null,
+    "postedAt": "2026-09-08"
+  },
+  {
+    "title": "Machine Learning Intern (Summer)",
+    "company": "Northwind Analytics",
+    "location": null,
+    "url": "http://127.0.0.1:4100/jobs/7",
+    "employmentType": null,
+    "postedAt": "2026-09-11"
+  }
+]

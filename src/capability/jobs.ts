@@ -55,6 +55,11 @@ export interface JobQuery {
   type?: EmploymentType;
   /** Cap per Pilot, not across the fan-out. */
   limit?: number;
+  /**
+   * Re-check location locally after the source returns. Off by default: the
+   * board already ran a geographic search and is better at it than we are.
+   */
+  strictLocation?: boolean;
 }
 
 // --- Normalization ---------------------------------------------------------
@@ -80,21 +85,34 @@ const TYPE_PATTERNS: ReadonlyArray<[EmploymentType, RegExp]> = [
   ["full-time", /\b(full time|permanent|regular)\b/],
 ];
 
+const INTERNSHIP_PATTERN = TYPE_PATTERNS[0]![1];
+
 /**
  * Prefer what the site says; fall back to the title. `typeBasis` records which,
  * so a caller can tell a real signal from a guess.
+ *
+ * With one exception, learned from the real boards: an internship named in the
+ * title beats the site's own employment type. Both LinkedIn and Talent.com
+ * report "Software Engineering Intern (Summer)" as `Full-time`, because their
+ * field means hours per week, not level. The title is the more specific signal
+ * and it is the one a caller filtering for internships actually means.
  */
 export function classifyEmploymentType(
   title: string,
   rawType: string | null,
 ): { type: EmploymentType; typeBasis: Job["typeBasis"] } {
+  const normalizedTitle = normalizeForMatch(title);
+  if (INTERNSHIP_PATTERN.test(normalizedTitle)) {
+    return { type: "internship", typeBasis: "title" };
+  }
+
   if (rawType) {
     const normalized = normalizeForMatch(rawType);
     for (const [type, pattern] of TYPE_PATTERNS) {
       if (pattern.test(normalized)) return { type, typeBasis: "source" };
     }
   }
-  const normalizedTitle = normalizeForMatch(title);
+
   for (const [type, pattern] of TYPE_PATTERNS) {
     if (pattern.test(normalizedTitle)) return { type, typeBasis: "title" };
   }
@@ -135,10 +153,17 @@ export function toJob(source: string, record: RawRecord): Job | null {
  * Applied to every Pilot's output regardless of whether the site honoured the
  * query. Sites disagree about what a keyword search means; this is what makes
  * results from different sources comparable.
+ *
+ * Location is deliberately NOT filtered here by default. The query is passed to
+ * the board, which runs a real geographic search; re-checking it as a substring
+ * afterwards throws away correct results — a search for "Boston" against
+ * LinkedIn legitimately returns Cambridge and Waltham, and substring matching
+ * discards every one of them. A board knows its own geography better than we
+ * do. Pass `strictLocation` to filter anyway, for a source that ignores it.
  */
 export function filterJobs(jobs: Job[], query: JobQuery): Job[] {
   const keywords = query.keywords ? normalizeForMatch(query.keywords).split(" ").filter(Boolean) : [];
-  const location = query.location ? normalizeForMatch(query.location) : null;
+  const location = query.strictLocation && query.location ? normalizeForMatch(query.location) : null;
 
   return jobs.filter((job) => {
     if (keywords.length > 0) {
@@ -147,7 +172,7 @@ export function filterJobs(jobs: Job[], query: JobQuery): Job[] {
     }
     if (location) {
       const haystack = normalizeForMatch(job.location ?? "");
-      const remote = normalizeForMatch(job.title).includes("remote");
+      const remote = normalizeForMatch(`${job.title} ${job.location ?? ""}`).includes("remote");
       if (!haystack.includes(location) && !(location === "remote" && remote)) return false;
     }
     if (query.type && job.type !== query.type) return false;

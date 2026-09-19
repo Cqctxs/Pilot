@@ -1,0 +1,76 @@
+{
+  "pilotFormatVersion": 2,
+  "id": "linkedin",
+  "version": "1.0.0",
+  "target": {
+    "name": "LinkedIn",
+    "url": "https://www.linkedin.com/jobs/search?keywords=software%20intern&location=Boston"
+  },
+  "capability": "jobs.board@1",
+  "schema": {
+    "name": "jobs.board@1",
+    "fields": [
+      {
+        "name": "title",
+        "type": "string",
+        "required": true,
+        "description": "The job title as posted"
+      },
+      {
+        "name": "company",
+        "type": "string",
+        "required": true,
+        "description": "Hiring company name"
+      },
+      {
+        "name": "location",
+        "type": "string",
+        "required": false,
+        "description": "Work location, or 'Remote'"
+      },
+      {
+        "name": "url",
+        "type": "url",
+        "required": true,
+        "description": "Link to the full posting"
+      },
+      {
+        "name": "employmentType",
+        "type": "string",
+        "required": false,
+        "description": "Raw employment type as the site labels it, e.g. 'Internship', 'Full-time'"
+      },
+      {
+        "name": "postedAt",
+        "type": "string",
+        "required": false,
+        "description": "When the job was posted, as shown"
+      }
+    ]
+  },
+  "artifact": {
+    "kind": "script",
+    "entry": "extract.mjs",
+    "needsBrowser": false
+  },
+  "discovered": [
+    "seniority level",
+    "job function",
+    "industries",
+    "job description",
+    "applicant status badges such as Actively Hiring / Be an early applicant"
+  ],
+  "origin": "ai-generated",
+  "createdAt": "2026-09-19T21:31:20.656Z",
+  "compiler": {
+    "model": "gpt-5.5",
+    "attempts": 1,
+    "steps": 17,
+    "repairedFrom": null
+  },
+  "evidence": {
+    "recordCount": 30,
+    "checkedAt": "2026-09-19T21:31:20.656Z",
+    "sampleFile": "sample.json"
+  }
+}

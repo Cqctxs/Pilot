@@ -2,10 +2,10 @@
 
 Pilot compiles a website into a reusable data API.
 
-Point it at a URL, tell it what data you want, and it produces a **Pilot**: a
-declarative recipe that extracts that data, validated against the live site.
-Running a Pilot afterwards is ordinary deterministic code — no model call, no
-per-request AI cost, no nondeterminism.
+Point it at a URL and tell it what data you want. A model explores the site with
+a real browser, tests extraction until it works, and writes a script. From then
+on that script runs on its own — no model call, no per-request AI cost, no
+nondeterminism.
 
 The compiler is the product. Job boards are the first thing we point it at.
 
@@ -15,29 +15,26 @@ The compiler is the product. Job boards are the first thing we point it at.
 
 ### Build order
 
-The project is built in three stages, in this order. Each stage has to work
-before the next one starts.
-
-**Stage 1 — the compiler.** `pilot create <url>` observes any website and emits
-a validated recipe for an arbitrary set of fields. Proven against sites that
-expose JSON and sites that only render HTML. This stage is capability-agnostic:
+**Stage 1 — the compiler.** `pilot create <url>` explores any website and emits a
+validated extraction script for an arbitrary set of fields. Capability-agnostic:
 `--fields title,price,url` against a shop is as valid a test as a job board.
+**Done.**
 
-**Stage 2 — job search at scale.** The `jobs.board@1` capability, and Pilots for
-real job boards — Indeed and LinkedIn as the headline targets. The fan-out API
-lands here: one call, many boards, merged and deduped.
+**Stage 2 — job search at scale.** The `jobs.board@1` capability and Pilots for
+real boards — **LinkedIn** and **Talent.com**. The fan-out API: one call, many
+boards, merged and deduped. **Done.**
 
-**Stage 3 — controlled testing.** A local job board we own, used to test the
-things live sites cannot test on demand: a true no-match, a changed layout, and
-repair after a break.
+**Stage 3 — controlled testing.** A local board we own, for the things live sites
+cannot be asked to do on demand: a true no-match, a changed layout, repair after
+a break.
 
 ### In scope
 
 | Component | What it is |
 | --- | --- |
-| Compiler | Observe a site, generate a recipe, validate it against live data, retry on failure |
-| Recipe format | Declarative, reviewable JSON. Two kinds: `http-json` and `browser` |
-| Runtime | Deterministic interpreters for both recipe kinds. No model calls |
+| Compiler | Explore a site with a browser, write a script, run it for real, retry on failure |
+| Artifact | An ES module exporting `search(page, query)`, plus metadata |
+| Runtime | Loads and runs a compiled script. No model calls |
 | Capability | A named schema plus its normalization rules. `jobs.board@1` is the first |
 | SDK | In-process TypeScript API with variadic target selection |
 | CLI | `create`, `list`, `enable`/`disable`, `search`, `repair`, `testboard` |
@@ -45,11 +42,10 @@ repair after a break.
 
 ### Not in scope
 
-No web dashboard. No package registry or publish/install flow — a compiled Pilot
-is a file in `pilots/`, and sharing one is a commit. No authentication or
-credentialed sessions; every target is public. No HTTP server — the SDK and CLI
-call the runtime in-process. No write operations: Pilots read data, they do not
-submit applications.
+No web dashboard. No package registry — a compiled Pilot is a file in `pilots/`,
+and sharing one is a commit. No authentication; every target is public. No HTTP
+server — the SDK and CLI call the runtime in-process. No write operations:
+Pilots read data, they do not submit applications.
 
 ---
 
@@ -60,23 +56,22 @@ submit applications.
           │                                        │
           ▼                                        ▼
   ┌───────────────┐                        ┌───────────────┐
-  │   COMPILER    │ ── writes a Pilot ──▶  │    RUNTIME    │
+  │   COMPILER    │ ── writes a script ──▶ │    RUNTIME    │
   │  (uses a LLM) │                        │ (never does)  │
   └───────┬───────┘                        └───────┬───────┘
           │                                        │
-   observe → generate                       http-json | browser
-   → validate → retry                        interpreter
+   explore the live site                    load the module,
+   → submit → validate → retry              call search()
 ```
 
-The line between those two boxes is the design. A model runs **once**, at
-compile time, and its output is data rather than code. Everything a user
-actually waits on — searching — is deterministic.
+The line between those boxes is the design. A model runs **once**, at compile
+time. Everything a user actually waits on is ordinary code.
 
 ```text
 src/
-  shared/      schema, recipe format, Pilot artifact, errors, env
-  compiler/    observe → generate → validate → repair, and the one model client
-  runtime/     deterministic interpreters
+  shared/      schema, Pilot artifact, errors, env
+  compiler/    explorer (browser tools), model client, validate, the loop
+  runtime/     loads and runs compiled scripts
   capability/  jobs.board@1: schema, normalization, filtering, dedupe
   pilots/      directory-backed Pilot store
   sdk/         the developer-facing API
@@ -100,198 +95,185 @@ import { pilot } from "./src/sdk/index.js";
 const jobs = pilot().capability("jobs.board@1");
 
 await jobs.search();                        // every enabled Pilot
-await jobs.search("indeed");                // just Indeed
-await jobs.search("indeed", "linkedin");    // both, merged and deduped
-await jobs.search("indeed", { keywords: "software intern" });
+await jobs.search("linkedin");              // just LinkedIn
+await jobs.search("linkedin", "talent");    // both, merged and deduped
+await jobs.search("linkedin", { keywords: "software intern" });
 await jobs.search({ keywords: "software intern", location: "Boston" });
 ```
 
 **Argument rule.** Positional string arguments name Pilots; an optional trailing
-object is the query. Both are optional and they compose freely.
+object is the query. Both are optional and compose freely.
 
 **Selection rule.** No names means every *enabled* Pilot. Naming a Pilot runs
 exactly that one, **whether or not it is enabled** — an explicit request is the
-caller's decision, and silently skipping a named target would be worse than
-running a disabled one.
+caller's decision, and silently skipping a named target would be worse.
 
 ### Result shape
 
 ```ts
 interface SearchResult {
   jobs: Job[];
-  sources: Array<{
-    pilotId: string;
-    ok: boolean;
-    count: number;
-    durationMs: number;
-    error?: PilotError;
-  }>;
+  sources: Array<{ pilotId: string; ok: boolean; count: number; durationMs: number; error?: PilotError }>;
 }
 ```
 
-A fan-out returns per-source outcomes because partial failure is the normal
-case: LinkedIn rate-limits while Indeed answers. One dead source must never fail
-the whole search. Sources run concurrently.
+Partial failure is the normal case: LinkedIn rate-limits while Talent answers.
+One dead source must never fail the whole search. Sources run concurrently.
 
 ### Normalization
 
-Every result passes through the same pipeline regardless of source, because
-sites disagree about what a search means:
-
 1. Records missing a required field are dropped, not half-populated.
-2. Employment type is read from the site when it says, inferred from the title
-   when it does not, and marked `unknown` when there is no signal. `typeBasis`
-   records which — a caller can tell a fact from a guess.
-3. Keyword and location filters are applied **locally**, after extraction, even
-   when the query was also sent to the site. A site that ignores `?q=` and one
-   that honours it must produce comparable results.
-4. Cross-listed postings are deduped on normalized title + company.
+2. Employment type is read from the site, falling back to the title, with
+   `typeBasis` recording which — so a caller can tell a fact from a guess.
+   **One exception, learned from the live boards:** an internship named in the
+   title overrides the site's employment type. Both LinkedIn and Talent.com
+   report "Software Engineering Intern (Summer)" as `Full-time`, because their
+   field means hours per week, not level.
+3. Keywords are filtered **locally** after extraction, because sites over-match.
+4. Location is **not** filtered locally by default. The query goes to the board,
+   which runs a real geographic search; re-checking it as a substring throws away
+   correct results — "Boston" legitimately returns Cambridge and Waltham, and
+   substring matching discards every one. Opt in with `strictLocation` for a
+   source that ignores location entirely.
+5. Cross-listed postings are deduped on normalized title + company.
 
 ---
 
-## 4. Recipe format
+## 4. What the compiler emits
 
-A recipe is what the compiler emits and the runtime consumes. It names no
-website in its structure — anything site-specific lives in the values.
+An ES module exporting one function, written once and then run on its own:
 
-### `http-json`
-
-Preferred whenever the site has an endpoint carrying the records. Faster,
-cheaper, and far more stable than driving a browser.
-
-```json
-{
-  "recipeFormatVersion": 1,
-  "kind": "http-json",
-  "request": { "urlTemplate": "https://example.com/api/jobs?q={keywords}&start={offset}" },
-  "pagination": { "kind": "counter", "variable": "offset", "start": 0, "step": 10, "maxPages": 3 },
-  "recordsPath": "data.results",
-  "fields": {
-    "title": { "sources": [{ "path": "title" }], "allowMissing": false },
-    "location": {
-      "sources": [{ "path": "location.name" }, { "path": "locations", "joinWith": "; " }],
-      "allowMissing": true
-    }
-  },
-  "exclude": [{ "path": "isListed", "equals": false }]
+```js
+// pilots/linkedin/1.0.0/extract.mjs
+export async function search(page, query) {
+  // query: { keywords, location, limit } — any may be empty or null
+  return [{ title, company, location, url, employmentType, postedAt }];
 }
 ```
 
-Multiple `sources` per field is deliberate: real sites scatter one logical value
-across shapes, and a recipe that expresses the fallback survives more of the site
-than one that cannot.
+`needsBrowser` in `pilot.json` decides whether Chromium is launched at all. A
+script that found a JSON or HTML-fragment endpoint sets it `false` and runs as
+plain `fetch`. The LinkedIn Pilot does exactly this — it discovered the guest
+`seeMoreJobPostings` fragment endpoint, so a LinkedIn search costs no browser.
 
-### `browser`
+### Why a script rather than a declarative recipe
 
-Used when no endpoint carries the records.
+Both run with zero model calls; that is not the difference. A script buys
+expressiveness — pagination that fits no pattern, dedupe across pages, falling
+back between two markup shapes — at the cost that it cannot be checked without
+running it, and that it is model-written code executing with this process's
+privileges.
 
-```json
-{
-  "recipeFormatVersion": 1,
-  "kind": "browser",
-  "request": { "urlTemplate": "https://example.com/jobs?q={keywords}", "waitFor": { "kind": "css", "selector": ".job-card" } },
-  "rows": { "kind": "css", "selector": ".job-card" },
-  "fields": {
-    "title": { "locator": { "kind": "css", "selector": "h2 a" }, "source": "text", "allowMissing": false },
-    "url": { "locator": { "kind": "css", "selector": "h2 a" }, "source": "href", "allowMissing": false }
-  },
-  "emptyState": { "kind": "text", "text": "No results" }
-}
-```
+### The trust boundary
 
-`emptyState` separates "this site has zero results" from "this recipe is
-broken". Without it, every empty page looks like a failure.
+Stated plainly: a compiled script is code, and it is executed. It is not
+sandboxed. What the runtime does enforce:
 
-### Constraints
+- a wall-clock timeout, applied by closing the browser out from under the script;
+- a cap of 500 records;
+- a shape check on the return value — anything that is not an array of objects is
+  a `PILOT_BROKEN` failure, and keys outside the schema are discarded;
+- static rejection, before the first run, of `require`, `import`, `process`,
+  Node built-ins, and `while (true)`.
 
-Both kinds are parsed by strict schemas. Unknown properties are rejected rather
-than ignored. JSON paths are validated segment by segment and prototype keys
-(`__proto__`, `constructor`, `prototype`) are refused. URLs must be `http(s)`.
-A recipe must extract **exactly** the schema's fields — no omissions, no
-inventions — checked before anything touches the network.
+A Pilot is a readable file. Read it before trusting it, the same as any
+dependency. Running extraction in a child process under the Node permission
+model would harden this further; that is a known open item, not a solved
+problem.
 
 ---
 
 ## 5. The compiler
 
 ```text
-observe → generate → validate → (retry with the failure) → save
+explore → submit script → validate against the live site → retry → save
 ```
 
-### Observe
+### Explore
 
-Load the target in a real browser and record two things: the JSON responses the
-page fetched (those that actually carry a list of records), and the rendered
-DOM. Samples are trimmed — first few records per array, strings capped — so the
-prompt stays bounded on a page with thousands of postings.
+The model drives a real browser through a narrow tool surface. It cannot see the
+page; it can only ask questions about it, which is why each tool returns a small,
+informative answer.
 
-The model never sees the live site and never drives a browser. It sees the
-observation object, once. That boundary is what makes a compile reproducible
-and cheap.
+| Tool | What it answers |
+| --- | --- |
+| `goto` | status, final URL, title, visible text |
+| `find` | how many elements a selector matched, and what the first few contain |
+| `fill` / `click` | interact — and `click` returns the resulting URL, which is how the search URL pattern gets discovered |
+| `evaluate` | run a candidate extraction in the page and see the actual output |
+| `requests` | JSON responses the page fetched, with samples |
+| `submit_script` | finish |
 
-### Generate
+`evaluate` is the one that matters. It turns "guess a selector from a wall of
+HTML" into "test the extraction and look at what came back" — the model iterates
+until the output is right, then submits what it proved.
 
-One model call producing a JSON recipe. The model is told the target schema and
-shown the observation. Output is parsed and schema-checked before use.
+`requests` is what makes a Pilot cheap: if an endpoint carries the records, the
+script calls it directly and never launches a browser again.
 
 ### Validate
 
-**This is the gate that makes it a compiler rather than a code generator.** A
-candidate recipe is executed against the live site and rejected unless:
+**The gate that separates a compiler from a code generator.** The submitted
+script is run for real, and rejected unless:
 
-- it extracts at least one record;
+- it returns at least one record;
 - every required field is present on ≥90% of records;
 - `url`-typed fields parse as URLs;
-- the records are not all identical — which means the row locator matched a
-  container instead of the repeating element.
+- the records are not all identical — which means the row selector matched a
+  container rather than the repeating element;
+- fewer than half the records are empty — a blocked page often yields junk rows
+  rather than an error.
+
+Static checks run first, so a script that uses `require` costs nothing to reject.
 
 ### Retry
 
-Failures are fed back verbatim as the next user turn: the rejected recipe plus
-exactly what went wrong. Three attempts by default. Shape errors are caught
-before any network round trip, so a malformed recipe costs nothing but a model
-call.
+Rejections go back to the model as a tool result, with the browser **still
+open** on the site — it investigates and corrects rather than restarting cold.
+Three attempts by default, a 30-step budget. A Pilot is written only after a
+real run produces records that satisfy the schema.
 
-A Pilot is only written after a recipe passes validation. There is no path that
-produces an unvalidated Pilot.
+### Discovery
+
+The explorer also reports fields the site exposes beyond the schema — salary and
+description snippet on Talent.com, seniority and job function on LinkedIn. These
+are recorded in `discovered`, **not extracted**. A capability's shape is fixed so
+results stay comparable across sources; discovery is how that shape grows later,
+deliberately, rather than per-site drift.
 
 ### Repair
 
-`pilot repair <id>` handles a site that changed under a working Pilot. It first
-**reproduces the failure** — a Pilot that still works is left alone, since
-replacing a known-good recipe with an unproven one is a regression. Then it
-re-observes, and generates with the previous recipe and the observed failure as
-context. Same validation gate. Minor version bump, with `repairedFrom` recorded.
+`pilot repair <id>` first **reproduces the failure** — a Pilot that still works
+is left alone, since replacing a known-good script with an unproven one is a
+regression. Then it re-explores with the old script and the observed failure as
+context. Same validation gate, minor version bump, `repairedFrom` recorded.
 
 ---
 
 ## 6. Pilot artifacts
 
-`pilots/<id>/<version>/pilot.json`, alongside a `sample.json` of the records
-that validated it. No registry service, no database: loading is a directory
-scan, publishing is a commit, and inspecting a Pilot is `cat`.
+`pilots/<id>/<version>/` holds `pilot.json`, the script, and a `sample.json` of
+the records that validated it. No registry service, no database: loading is a
+directory scan, publishing is a commit, inspecting is `cat`.
 
 ```json
 {
-  "pilotFormatVersion": 1,
-  "id": "indeed",
+  "pilotFormatVersion": 2,
+  "id": "linkedin",
   "version": "1.0.0",
-  "target": { "name": "Indeed", "url": "https://www.indeed.com/jobs" },
+  "target": { "name": "LinkedIn", "url": "https://www.linkedin.com/jobs/search" },
   "capability": "jobs.board@1",
   "schema": { "...": "copied in, so a Pilot is self-describing" },
-  "recipe": { "...": "" },
-  "origin": "ai-generated",
-  "compiler": { "model": "...", "attempts": 2, "repairedFrom": null },
-  "evidence": { "recordCount": 42, "checkedAt": "...", "sampleFile": "sample.json" }
+  "artifact": { "kind": "script", "entry": "extract.mjs", "needsBrowser": false },
+  "discovered": ["seniority level", "job function", "industries"],
+  "compiler": { "model": "gpt-5.5", "attempts": 1, "steps": 17, "repairedFrom": null },
+  "evidence": { "recordCount": 30, "checkedAt": "...", "sampleFile": "sample.json" }
 }
 ```
 
-The latest version of each Pilot is what loads. A malformed Pilot warns and is
-skipped — it must not take down every other Pilot.
-
-`config/pilots.json` holds which Pilots are enabled and any bound variables
-(e.g. a board's tenant slug). Configuration is separate from artifacts so that
-enabling a Pilot never rewrites a compiled one.
+The latest version of each Pilot loads. A malformed Pilot warns and is skipped —
+it must not take down every other Pilot. `config/pilots.json` holds which Pilots
+are enabled, separately from the artifacts, so enabling one never rewrites it.
 
 ---
 
@@ -299,112 +281,98 @@ enabling a Pilot never rewrites a compiled one.
 
 ```text
 pilot create <url> [--id x] [--name x] [--capability jobs.board@1 | --fields a,b,c]
-                   [--query text] [--attempts n]
+                   [--query text] [--location text] [--attempts n] [--steps n] [--watch]
 pilot list [--json]
 pilot enable <id> | pilot disable <id>
-pilot search [targets...] [--keywords x] [--location x] [--type x] [--limit n] [--json]
+pilot search [targets...] [--keywords x] [--location x] [--type x] [--limit n]
+                          [--strict-location] [--json]
 pilot repair <id> [--failure text]
 pilot testboard [--port n] [--layout a|b]
 ```
 
-`pilot search` mirrors the SDK exactly: positional arguments are Pilot names,
-flags are the query. Progress goes to stderr, results to stdout, so `--json`
-output stays pipeable. Exit is non-zero only when *every* source failed.
+`pilot search` mirrors the SDK: positional arguments are Pilot names, flags are
+the query. Progress goes to stderr, results to stdout, so `--json` stays
+pipeable. Exit is non-zero only when *every* source failed. `--watch` shows the
+browser during a compile, which is the fastest way to see why a site is fighting
+back.
 
 ---
 
 ## 8. Errors
 
-Typed codes, because callers branch on them. The distinction that matters most
-is between a site being temporarily unavailable and a Pilot being **wrong**:
+The distinction that matters most is between a site being temporarily
+unavailable and a Pilot being **wrong**:
 
 | Code | Meaning |
 | --- | --- |
 | `SOURCE_UNAVAILABLE` / `RATE_LIMITED` / `BLOCKED` | Transient. Retry later; the Pilot is fine |
-| `PILOT_BROKEN` | The recipe no longer matches the site. `pilot repair` is the fix |
-| `INVALID_SOURCE_RESPONSE` | The site answered with something unparseable |
+| `PILOT_BROKEN` | The script no longer matches the site, timed out, or returned the wrong shape. `pilot repair` is the fix |
 | `UNKNOWN_PILOT` / `NO_PILOTS_ENABLED` / `INVALID_ARGUMENT` | Caller error |
 | `AI_NOT_CONFIGURED` / `AI_REQUEST_FAILED` / `VALIDATION_FAILED` | Compile-time only |
-
-Conflating the first two rows would mean either repairing Pilots that are fine
-or leaving broken ones in place.
 
 ---
 
 ## 9. Test board
 
-`pilot testboard` serves a local job board on port 4100. It exists to test what
-live sites cannot be asked to do on demand.
+`pilot testboard` serves a local job board on port 4100, to test what live sites
+cannot be asked to do on demand.
 
-- Both transports: `/api/jobs` returns JSON, `/jobs` renders HTML. A working
-  compiler should prefer the JSON.
+- Both transports: `/api/jobs` returns JSON, `/jobs` renders HTML.
 - Two layouts. `--layout a` is a card list; `--layout b` is a table with
   different class names and nesting. A Pilot compiled against one **fails**
   against the other — the controlled break for `pilot repair`.
-- Eight postings chosen to include the shapes that break naive extractors: a
-  missing location, a job whose type appears only in its title, and two
-  postings differing only by location.
+- Eight postings including the shapes that break naive extractors: a missing
+  location, a job whose type appears only in its title, and two postings
+  differing only by location.
 
 ---
 
 ## 10. Completion gates
 
-**Stage 1.** `pilot create` compiles a working Pilot for a JSON-backed site and
-for a DOM-only site, without hand-editing the result. `--fields` works for a
-non-job schema — the compiler is not job-specific.
+**Stage 1.** ✅ `pilot create` compiles a working Pilot without hand-editing.
+Verified against the local board (12 steps, 1 attempt) and two live sites.
 
-**Stage 2.** `jobs.search("indeed")`, `jobs.search("linkedin")`, and
-`jobs.search("indeed", "linkedin")` all return real postings. The merged result
-is deduped, and one source failing still returns the other's results.
+**Stage 2.** ✅ `jobs.search("linkedin")`, `jobs.search("talent")` and
+`jobs.search("linkedin", "talent")` all return real postings, merged and
+deduped, with per-source outcomes. Verified.
 
-**Stage 3.** A Pilot compiled against test board layout A returns all eight
-postings; the query cases (keywords, location, type, true no-match) behave;
-switching to layout B produces `PILOT_BROKEN`; `pilot repair` produces a new
-version that passes the same cases unchanged. The SDK call is byte-identical
-before and after the repair.
+**Stage 3.** A Pilot compiled against layout A returns all eight postings and
+handles the query cases; switching to layout B produces `PILOT_BROKEN`;
+`pilot repair` produces a new version passing the same cases with the SDK call
+unchanged.
 
 Always green: `npm run typecheck` and `npm test` — unit tests plus an end-to-end
-run of the runtime against the local board, with no model and no external
+run of a script Pilot against the local board, with no model and no external
 network.
 
 ---
 
 ## 11. Risks
 
-**Some boards cannot be observed at all.** A target is only viable if
-`observe()` can load it in a real browser. Measured 2026-09-19, by running
-Pilot's own observer against each:
+**Some boards cannot be explored at all.** Measured 2026-09-19 by running
+Pilot's own browser against each:
 
 | Target | Result |
 | --- | --- |
-| Indeed | **Blocked.** Serves `Blocked - Indeed.com`, ~400 chars, no listings |
+| Indeed | **Blocked.** Serves `Blocked - Indeed.com`, no listings |
 | SimplyHired, Glassdoor | **Blocked.** Cloudflare interstitial |
 | ZipRecruiter, WeWorkRemotely | **Blocked.** Cloudflare interstitial |
-| LinkedIn | Loads. Guest job search renders listings without login |
-| Talent.com, Dice, Built In, Wellfound | Load. Listings render |
-| The Muse, USAJOBS | Load, and call their own JSON endpoints |
+| **LinkedIn** | Compiles. Guest fragment endpoint, no browser needed at runtime |
+| **Talent.com** | Compiles. Server-rendered, 3 pages, deduped |
+| Dice, Built In, Wellfound, The Muse, USAJOBS | Load; not yet compiled |
 
-Indeed, SimplyHired and Glassdoor are all Recruit Holdings properties and all
-block identically — treat them as one unavailable target, not three.
+Indeed, SimplyHired and Glassdoor are all Recruit Holdings properties and block
+identically — treat them as one unavailable target, not three.
 
-This is a property of the targets, not of the design. Where a board does load,
-keep `maxPages` small, identify the client honestly, and respect `Retry-After`.
-Boards hosted on Greenhouse, Lever and Ashby remain a strong fallback: they load
-freely and cover a large share of real postings, though each hosted board is one
-employer, so breadth there needs one Pilot per employer or a multi-instance
-extension to `config/pilots.json`.
+**Rate limiting is the live risk for LinkedIn.** Keep pagination to 3 pages,
+identify the client honestly, respect `Retry-After`, and avoid per-record detail
+fetches — a search that fires one request per result is what gets a client
+blocked. The compiler is instructed accordingly.
 
-The architecture does not change with any of this; only which Pilots exist.
+**Terms of service.** Public-listing extraction sits in a contested area. Read
+only, low volume, honest user agent, no working around anti-bot measures.
 
-**Terms of service.** Public-listing extraction sits in a contested area. Keep
-request volume low, identify the client honestly in the user agent, respect
-`Retry-After`, and do not build around anti-bot measures. Read only; never
-submit.
+**Compile cost.** Each compile is a browser session plus up to 30 model turns.
+The validation gate is what keeps a bad script from reaching `pilots/`.
 
-**Compile cost and flakiness.** Each compile is up to three model calls plus
-live fetches. Observation samples are trimmed to bound prompt size; the
-validation gate is what keeps a bad recipe from reaching `pilots/`.
-
-**Browser recipes are inherently more brittle** than JSON ones. That is the
-reason `pilot repair` exists, and the reason the compiler prefers `http-json`
-whenever a usable endpoint is observed.
+**Generated code is executed.** See §4. Not sandboxed; review before trusting.

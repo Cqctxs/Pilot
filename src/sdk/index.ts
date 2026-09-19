@@ -101,11 +101,11 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
   ): Promise<{ jobs: Job[]; result: SourceResult }> {
     const started = Date.now();
     try {
-      const records = await executePilot(item.pilot, {
-        variables: {
-          ...item.config.variables,
+      const records = await executePilot(item, {
+        query: {
           keywords: query.keywords ?? "",
           location: query.location ?? "",
+          limit: query.limit ?? null,
         },
       });
 

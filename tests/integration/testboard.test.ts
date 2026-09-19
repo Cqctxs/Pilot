@@ -1,52 +1,69 @@
 /**
- * End-to-end through the deterministic path: a hand-written recipe against the
- * local board. No model, no network beyond localhost.
+ * End-to-end through the deterministic path: a hand-written script Pilot
+ * against the local board. No model, no external network.
  *
- * This is the contract the compiler has to satisfy — whatever it generates must
- * behave like the recipe below.
+ * This is the contract the compiler has to satisfy — whatever the explorer
+ * submits must behave like the script below.
  */
 import type { Server } from "node:http";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startTestBoard } from "../../src/testboard/server.js";
+import { PilotStore } from "../../src/pilots/store.js";
 import { executePilot } from "../../src/runtime/execute.js";
 import { JOBS_CAPABILITY, JOBS_SCHEMA, filterJobs, toJob, type Job } from "../../src/capability/jobs.js";
-import { parsePilot, type Pilot } from "../../src/shared/pilot.js";
+import { loadEnv } from "../../src/shared/env.js";
 
 const PORT = 4137;
 const BASE = `http://127.0.0.1:${PORT}`;
-let server: Server;
 
-function buildPilot(): Pilot {
-  return parsePilot({
-    pilotFormatVersion: 1,
-    id: "testboard",
-    version: "1.0.0",
-    target: { name: "Test Board", url: BASE },
-    capability: JOBS_CAPABILITY,
-    schema: JOBS_SCHEMA,
-    recipe: {
-      recipeFormatVersion: 1,
-      kind: "http-json",
-      request: { urlTemplate: `${BASE}/api/jobs?q={keywords}&loc={location}` },
-      recordsPath: "results",
-      fields: {
-        title: { sources: [{ path: "title" }], allowMissing: false },
-        company: { sources: [{ path: "company" }], allowMissing: false },
-        location: { sources: [{ path: "location" }], allowMissing: true },
-        url: { sources: [{ path: "url" }], allowMissing: false },
-        employmentType: { sources: [{ path: "employmentType" }], allowMissing: true },
-        postedAt: { sources: [{ path: "postedAt" }], allowMissing: true },
-      },
-    },
-    origin: "handwritten",
-    createdAt: new Date().toISOString(),
-    evidence: { recordCount: 8, checkedAt: new Date().toISOString() },
-  });
+let server: Server;
+let root: string;
+let store: PilotStore;
+
+/** A script exactly like one the compiler would submit for a JSON-backed site. */
+const SCRIPT = `export async function search(page, query) {
+  const url = \`${BASE}/api/jobs?q=\${encodeURIComponent(query.keywords || "")}&loc=\${encodeURIComponent(query.location || "")}\`;
+  const response = await fetch(url);
+  const body = await response.json();
+  return body.results.map((job) => ({
+    title: job.title,
+    company: job.company,
+    location: job.location,
+    url: job.url,
+    employmentType: job.employmentType,
+    postedAt: job.postedAt,
+  }));
+}
+`;
+
+function install(): void {
+  const dir = path.join(root, "pilots", "testboard", "1.0.0");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "extract.mjs"), SCRIPT);
+  writeFileSync(
+    path.join(dir, "pilot.json"),
+    JSON.stringify({
+      pilotFormatVersion: 2,
+      id: "testboard",
+      version: "1.0.0",
+      target: { name: "Test Board", url: BASE },
+      capability: JOBS_CAPABILITY,
+      schema: JOBS_SCHEMA,
+      artifact: { kind: "script", entry: "extract.mjs", needsBrowser: false },
+      discovered: [],
+      origin: "handwritten",
+      createdAt: new Date().toISOString(),
+      evidence: { recordCount: 8, checkedAt: new Date().toISOString() },
+    }),
+  );
 }
 
 async function search(query: { keywords?: string; location?: string }): Promise<Job[]> {
-  const records = await executePilot(buildPilot(), {
-    variables: { keywords: query.keywords ?? "", location: query.location ?? "" },
+  const records = await executePilot(store.get("testboard"), {
+    query: { keywords: query.keywords ?? "", location: query.location ?? "" },
   });
   const jobs = records
     .map((record) => toJob("testboard", record))
@@ -56,13 +73,21 @@ async function search(query: { keywords?: string; location?: string }): Promise<
 
 beforeAll(async () => {
   server = await startTestBoard({ port: PORT, layout: "a" });
+  root = mkdtempSync(path.join(tmpdir(), "pilot-test-"));
+  install();
+  store = new PilotStore({
+    ...loadEnv(),
+    pilotsDir: path.join(root, "pilots"),
+    configFile: path.join(root, "pilots.json"),
+  });
 });
 
 afterAll(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  rmSync(root, { recursive: true, force: true });
 });
 
-describe("runtime against the test board", () => {
+describe("running a script Pilot against the test board", () => {
   it("returns the complete catalogue for an empty query", async () => {
     expect(await search({})).toHaveLength(8);
   });

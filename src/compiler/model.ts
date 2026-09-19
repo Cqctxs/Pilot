@@ -5,18 +5,37 @@
  * Swapping providers means rewriting this file and nothing else.
  */
 import OpenAI from "openai";
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from "openai/resources/chat/completions";
 import { pilotError } from "../shared/errors.js";
 import type { PilotEnv } from "../shared/env.js";
 
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+export interface ModelTurn {
+  /** Assistant message to append to the transcript verbatim. */
+  raw: ChatCompletionMessageParam;
+  text: string | null;
+  toolCalls: ToolCall[];
+}
+
 export interface ModelClient {
-  /** Returns raw JSON text. Callers validate; a model's word is never taken for it. */
-  complete(system: string, messages: Array<{ role: "user" | "assistant"; content: string }>): Promise<string>;
   readonly model: string;
+  turn(messages: ChatCompletionMessageParam[], tools: ChatCompletionTool[]): Promise<ModelTurn>;
 }
 
 export function createModelClient(env: PilotEnv): ModelClient {
   if (!env.openaiApiKey) {
-    throw pilotError("AI_NOT_CONFIGURED", "OPENAI_API_KEY is not set. Compiling needs it; running a compiled Pilot does not.");
+    throw pilotError(
+      "AI_NOT_CONFIGURED",
+      "OPENAI_API_KEY is not set. Compiling needs it; running a compiled Pilot does not.",
+    );
   }
   if (!env.compilerModel) {
     throw pilotError("AI_NOT_CONFIGURED", "PILOT_COMPILER_MODEL is not set. See .env.example.");
@@ -27,22 +46,42 @@ export function createModelClient(env: PilotEnv): ModelClient {
 
   return {
     model,
-    async complete(system, messages) {
+    async turn(messages, tools) {
       let response;
       try {
         response = await client.chat.completions.create({
           model,
-          response_format: { type: "json_object" },
-          messages: [{ role: "system", content: system }, ...messages],
+          messages,
+          tools,
+          tool_choice: "auto",
         });
       } catch (cause) {
-        throw pilotError("AI_REQUEST_FAILED", `Compiler model request failed: ${(cause as Error).message}`);
+        throw pilotError(
+          "AI_REQUEST_FAILED",
+          `Compiler model request failed: ${(cause as Error).message}`,
+        );
       }
-      const text = response.choices[0]?.message?.content;
-      if (!text) {
-        throw pilotError("AI_REQUEST_FAILED", "Compiler model returned an empty response");
+
+      const message = response.choices[0]?.message;
+      if (!message) {
+        throw pilotError("AI_REQUEST_FAILED", "Compiler model returned no message");
       }
-      return text;
+
+      const toolCalls: ToolCall[] = [];
+      for (const call of message.tool_calls ?? []) {
+        if (call.type !== "function") continue;
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
+        } catch {
+          // A malformed argument blob is reported back as a tool result rather
+          // than thrown, so the model can correct itself on the next turn.
+          args = { __parseError: call.function.arguments };
+        }
+        toolCalls.push({ id: call.id, name: call.function.name, args });
+      }
+
+      return { raw: message as ChatCompletionMessageParam, text: message.content, toolCalls };
     },
   };
 }

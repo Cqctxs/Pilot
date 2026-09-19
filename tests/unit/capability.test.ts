@@ -31,9 +31,17 @@ describe("normalization", () => {
   });
 
   it("prefers the site's own employment type over the title", () => {
-    expect(classifyEmploymentType("Software Engineer", "Internship")).toEqual({
-      type: "internship",
+    expect(classifyEmploymentType("Software Engineer", "Part time")).toEqual({
+      type: "part-time",
       typeBasis: "source",
+    });
+  });
+
+  it("trusts an internship in the title over the board's employment type", () => {
+    // Both LinkedIn and Talent.com label internships 'Full-time'.
+    expect(classifyEmploymentType("Software Engineering Intern (Summer)", "Full-time")).toEqual({
+      type: "internship",
+      typeBasis: "title",
     });
   });
 
@@ -79,8 +87,14 @@ describe("filterJobs", () => {
     expect(filterJobs(jobs, { keywords: "software designer" })).toHaveLength(0);
   });
 
-  it("matches location case- and punctuation-insensitively", () => {
-    expect(filterJobs(jobs, { location: "austin" })).toHaveLength(1);
+  it("leaves location to the board by default", () => {
+    // The board ran a real geographic search; a substring re-check would throw
+    // away legitimate nearby results.
+    expect(filterJobs(jobs, { location: "austin" })).toHaveLength(3);
+  });
+
+  it("filters location locally only when asked", () => {
+    expect(filterJobs(jobs, { location: "austin", strictLocation: true })).toHaveLength(1);
   });
 
   it("filters by employment type", () => {

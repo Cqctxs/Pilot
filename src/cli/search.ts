@@ -17,6 +17,7 @@ export async function runSearch(env: PilotEnv, args: ParsedArgs): Promise<number
     location: flagString(args, "location"),
     type: type as EmploymentType | undefined,
     limit: flagNumber(args, "limit"),
+    strictLocation: args.flags["strict-location"] === true,
   };
 
   const jobs = createPilot(env).capability(JOBS_CAPABILITY);

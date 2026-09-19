@@ -44,8 +44,24 @@ export interface PilotEnv {
   testBoardUrl: string;
 }
 
+let envFileLoaded = false;
+
+/** Load `.env` once, without overwriting anything already in the environment. */
+function loadEnvFile(projectRoot: string): void {
+  if (envFileLoaded) return;
+  envFileLoaded = true;
+  const file = path.join(projectRoot, ".env");
+  if (!existsSync(file)) return;
+  try {
+    process.loadEnvFile(file);
+  } catch {
+    // A malformed .env should not stop a command that does not need it.
+  }
+}
+
 export function loadEnv(): PilotEnv {
   const projectRoot = findProjectRoot();
+  loadEnvFile(projectRoot);
   const testBoardPort = envPort("PILOT_TESTBOARD_PORT", 4100);
   return {
     projectRoot,

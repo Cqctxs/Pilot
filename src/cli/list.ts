@@ -16,12 +16,12 @@ export async function runList(env: PilotEnv, args: ParsedArgs): Promise<number> 
   }
 
   const width = Math.max(...pilots.map((item) => item.pilot.id.length), 4);
-  process.stdout.write(`${"ID".padEnd(width)}  VERSION  STATUS    KIND        RECORDS  TARGET\n`);
+  process.stdout.write(`${"ID".padEnd(width)}  VERSION  STATUS    TRANSPORT   RECORDS  TARGET\n`);
   for (const { pilot, config } of pilots) {
     process.stdout.write(
       `${pilot.id.padEnd(width)}  ${pilot.version.padEnd(7)}  ` +
         `${(config.enabled ? "enabled" : "disabled").padEnd(8)}  ` +
-        `${pilot.recipe.kind.padEnd(10)}  ${String(pilot.evidence.recordCount).padStart(7)}  ${pilot.target.name}\n`,
+        `${(pilot.artifact.needsBrowser ? "browser" : "http").padEnd(10)}  ${String(pilot.evidence.recordCount).padStart(7)}  ${pilot.target.name}\n`,
     );
   }
   return 0;

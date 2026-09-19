@@ -1,13 +1,16 @@
 /**
- * A recipe is only accepted if it actually pulls data off the live site.
+ * A script is only accepted if it actually pulls data off the live site.
  *
  * This is the gate that separates a compiler from a code generator: the model's
- * output is a candidate, and this decides whether it becomes a Pilot.
+ * output is a candidate, and this decides whether it becomes a Pilot. Nothing
+ * writes a Pilot except through here.
  */
-import type { Recipe } from "../shared/recipe.js";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { DataSchema, RawRecord } from "../shared/schema.js";
-import { executeHttpJsonRecipe } from "../runtime/http-json.js";
-import { executeBrowserRecipe } from "../runtime/browser.js";
+import type { Pilot } from "../shared/pilot.js";
+import { runScript, type ScriptQuery } from "../runtime/script.js";
 import { toPilotError } from "../shared/errors.js";
 
 export interface ValidationReport {
@@ -20,51 +23,135 @@ export interface ValidationReport {
 /** Required fields must be present on essentially every record, not just most. */
 const REQUIRED_FIELD_COVERAGE = 0.9;
 
-export async function validateRecipe(
-  recipe: Recipe,
-  schema: DataSchema,
-  variables: Record<string, string | number> = {},
-): Promise<ValidationReport> {
-  let records: RawRecord[];
-  try {
-    records =
-      recipe.kind === "http-json"
-        ? await executeHttpJsonRecipe(recipe, variables)
-        : await executeBrowserRecipe(recipe, variables);
-  } catch (cause) {
-    const error = toPilotError(cause);
-    return { ok: false, records: [], problems: [`${error.code}: ${error.message}`] };
+/** Static checks worth running before spending a browser launch on the script. */
+const FORBIDDEN = [
+  { pattern: /\brequire\s*\(/, message: "uses require(); the script must be a self-contained ES module" },
+  { pattern: /\bimport\s+[^(]/, message: "has import statements; the script must be self-contained" },
+  { pattern: /\bwhile\s*\(\s*true\s*\)/, message: "contains a `while (true)` loop" },
+  { pattern: /\bprocess\s*\./, message: "touches `process`" },
+  { pattern: /node:|child_process|\bfs\b/, message: "references Node built-ins" },
+];
+
+export function checkScriptSource(code: string): string[] {
+  const problems: string[] = [];
+  if (!/export\s+(async\s+)?function\s+search\s*\(/.test(code)) {
+    problems.push("does not export `async function search(page, query)`");
+  }
+  for (const rule of FORBIDDEN) {
+    if (rule.pattern.test(code)) problems.push(`Script ${rule.message}.`);
+  }
+  return problems;
+}
+
+/**
+ * Run a candidate script from a scratch directory. It never touches `pilots/`
+ * unless it passes — a rejected candidate leaves no trace.
+ */
+export async function validateScript(input: {
+  code: string;
+  needsBrowser: boolean;
+  schema: DataSchema;
+  pilotId: string;
+  targetUrl: string;
+  query: ScriptQuery;
+  timeoutMs?: number;
+  onLog?: (message: string) => void;
+}): Promise<ValidationReport> {
+  const staticProblems = checkScriptSource(input.code);
+  if (staticProblems.length > 0) {
+    return { ok: false, records: [], problems: staticProblems };
   }
 
+  const dir = mkdtempSync(path.join(tmpdir(), "pilot-validate-"));
+  try {
+    writeFileSync(path.join(dir, "extract.mjs"), input.code);
+
+    const candidate: Pilot = {
+      pilotFormatVersion: 2,
+      id: input.pilotId,
+      version: "0.0.1",
+      target: { name: input.pilotId, url: input.targetUrl },
+      capability: null,
+      schema: input.schema,
+      artifact: { kind: "script", entry: "extract.mjs", needsBrowser: input.needsBrowser },
+      discovered: [],
+      origin: "ai-generated",
+      createdAt: new Date().toISOString(),
+      compiler: null,
+      evidence: { recordCount: 0, checkedAt: new Date().toISOString(), sampleFile: null },
+    };
+
+    let records: RawRecord[];
+    try {
+      records = await runScript(candidate, dir, input.query, {
+        timeoutMs: input.timeoutMs,
+        onLog: input.onLog,
+      });
+    } catch (cause) {
+      const error = toPilotError(cause);
+      return { ok: false, records: [], problems: [`${error.code}: ${error.message}`] };
+    }
+
+    return { ...judge(records, input.schema), records };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function judge(records: RawRecord[], schema: DataSchema): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
+
   if (records.length === 0) {
-    problems.push("The recipe ran but extracted zero records. Check recordsPath / rows.");
+    problems.push(
+      "The script ran but returned zero records. Either the selector matched nothing or the results had not loaded when it read the page.",
+    );
+    return { ok: false, problems };
   }
 
   for (const field of schema.fields) {
     const present = records.filter((record) => record[field.name]).length;
-    const coverage = records.length === 0 ? 0 : present / records.length;
+    const coverage = present / records.length;
     if (field.required && coverage < REQUIRED_FIELD_COVERAGE) {
       problems.push(
-        `Required field "${field.name}" was found on only ${present}/${records.length} records. The path or locator is probably wrong.`,
+        `Required field "${field.name}" is present on only ${present}/${records.length} records. Its selector is wrong.`,
+      );
+    } else if (!field.required && present === 0) {
+      problems.push(
+        `Optional field "${field.name}" is null on every record. If the site does show it, fix the selector; if it genuinely does not, that is fine.`,
       );
     }
     if (field.type === "url") {
       const bad = records.find((record) => record[field.name] && !isUrlish(record[field.name]!));
-      if (bad) problems.push(`Field "${field.name}" is not a URL: ${JSON.stringify(bad[field.name])}`);
+      if (bad) {
+        problems.push(`Field "${field.name}" is not a URL: ${JSON.stringify(bad[field.name])}`);
+      }
     }
   }
 
-  // Every record identical usually means the row locator matched a container
-  // rather than the repeating element.
+  // Every record identical almost always means the row selector matched one
+  // container rather than the repeating element.
   if (records.length > 1) {
     const first = JSON.stringify(records[0]);
     if (records.every((record) => JSON.stringify(record) === first)) {
-      problems.push("Every record is identical — the row locator is matching the wrong element.");
+      problems.push(
+        "Every record is identical. The row selector is matching a single container instead of the repeating element.",
+      );
     }
   }
 
-  return { ok: problems.length === 0, records, problems };
+  // A blocked page often yields a handful of junk rows rather than an error.
+  const requiredNames = schema.fields.filter((field) => field.required).map((field) => field.name);
+  const emptyish = records.filter((record) =>
+    requiredNames.every((name) => !record[name]),
+  ).length;
+  if (emptyish > records.length / 2) {
+    problems.push("More than half the records are empty. The extraction is matching the wrong elements.");
+  }
+
+  // Optional-field-only complaints are advisory; they should not block a Pilot
+  // that otherwise works.
+  const blocking = problems.filter((problem) => !problem.startsWith('Optional field'));
+  return { ok: blocking.length === 0, problems };
 }
 
 function isUrlish(value: string): boolean {
