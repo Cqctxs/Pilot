@@ -105,7 +105,111 @@ pilot enable|disable <id>     Include or exclude from unqualified searches
 pilot search [targets...]     --keywords --location --type --limit --json
 pilot repair <id>             Recompile a Pilot whose site changed
 pilot testboard               Serve the local board (--layout a|b)
+
+pilot publish <id>            Push a compiled Pilot to the registry
+pilot install <id>[@version]  Install one from the registry
+pilot registry list           Every published Pilot
+pilot registry search <text>  Find one by site, capability, or field
+pilot registry health [id]    Success rate per Pilot, worst first
+
+pilot mcp                     Serve Pilot over MCP to Claude Code / Codex
 ```
+
+---
+
+## For agents (MCP)
+
+A browsing agent re-solves a site on every request and the capability dies with
+the session. Pilot makes it permanent: an agent that needs data from a site with
+no API compiles a Pilot **once**, and from then on it — and every other agent on
+the team — has a tool that costs no tokens to run.
+
+```bash
+pilot mcp     # stdio MCP server
+```
+
+Claude Code picks up the `.mcp.json` in this repo automatically. For Codex, in
+`~/.codex/config.toml`:
+
+```toml
+[mcp_servers.pilot]
+command = "npx"
+args = ["tsx", "src/cli/main.ts", "mcp"]
+cwd = "/path/to/Pilot"
+```
+
+Nine tools:
+
+| Tool | What it does |
+| --- | --- |
+| `pilot_list` | What this machine can already do |
+| `pilot_search` | Job boards, merged and deduped |
+| `pilot_run` | Any Pilot, raw records — for non-jobs schemas |
+| `pilot_create` | **Compile a new site into a Pilot** |
+| `pilot_repair` | Recompile one whose site changed |
+| `pilot_registry_search` | Has someone already compiled this? |
+| `pilot_install` / `pilot_publish` | Move Pilots between machines |
+| `pilot_health` | What is failing, worst first |
+
+Measured end to end through a real MCP client, starting from an empty Pilot
+directory:
+
+```text
+pilot_list    → No Pilots installed.
+pilot_create  → Compiled mcpboard@1.0.0 (browser, 13 steps, 1 attempt), 25s
+pilot_search  → 4 jobs from 1/1 source(s)
+```
+
+The agent built the tool and then used it, in one conversation.
+
+`pilot_create` and `pilot_repair` take minutes and may exceed a client's default
+tool timeout; they stream progress as MCP log notifications. Everything else is
+ordinary compiled code and returns in seconds.
+
+---
+
+## The registry
+
+Compiling a site is the expensive part, and nobody should pay it twice. The
+registry is where a compiled Pilot goes so the next person can just install it.
+
+```bash
+# .env
+PILOT_REGISTRY_URI=mongodb+srv://...
+PILOT_PUBLISHER=your-name
+```
+
+```bash
+pilot publish linkedin
+pilot install linkedin            # on any other machine
+pilot registry search salary      # which Pilots see a salary field?
+```
+
+An installed Pilot is byte-identical to a compiled one — same files, same
+directory — so nothing downstream can tell them apart.
+
+**MongoDB**, because a Pilot already *is* a document: its `schema` block differs
+per capability, so there is no fixed table to flatten it into, and adding a
+capability must not mean writing a migration. One document holds the artifact,
+the script, and its provenance.
+
+### Health is the interesting part
+
+Every `pilot search` reports per-source outcomes back to the registry
+(best-effort, `--no-report` to opt out). An aggregation turns that stream into a
+rolling success rate:
+
+```text
+ID         VERSION  RUNS  OK%   AVG RECS  LAST ERROR
+talent     1.0.0      41   46%       2.1  PILOT_BROKEN
+linkedin   1.0.0      39  100%      29.6  —
+```
+
+Sorted worst first, so the top row is the next thing to recompile. This is how
+Pilot finds out a site changed: from the searches people are already running,
+rather than from someone noticing and filing a bug. The report keeps the last
+*error* rather than the last run's error code — otherwise a Pilot that fails
+half the time reads as healthy whenever its newest run happened to succeed.
 
 ---
 
@@ -165,6 +269,8 @@ src/
   runtime/     loads and runs compiled scripts
   capability/  jobs.board@1: schema, normalization, filtering, dedupe
   pilots/      directory-backed Pilot store
+  registry/    MongoDB-backed publish, install, search, health
+  mcp/         MCP server — the same operations, for agents
   sdk/         the developer-facing API
   cli/         thin wrapper over the SDK
   testboard/   local job board for controlled tests
@@ -181,4 +287,4 @@ Pilot against the local board, with no model and no external network.
 Indeed, SimplyHired, Glassdoor and ZipRecruiter all block automated access
 outright — verified, not assumed. LinkedIn and Talent.com both work. Pilot reads
 only, keeps volume low, identifies itself honestly, and does not work around
-anti-bot measures. See [SPEC.md](SPEC.md) §11.
+anti-bot measures. See [SPEC.md](SPEC.md) §13.

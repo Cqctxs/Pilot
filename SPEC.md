@@ -288,17 +288,123 @@ pilot search [targets...] [--keywords x] [--location x] [--type x] [--limit n]
                           [--strict-location] [--json]
 pilot repair <id> [--failure text]
 pilot testboard [--port n] [--layout a|b]
+
+pilot publish <id>
+pilot install <id>[@version]
+pilot registry list | search <text> | versions <id> | health [id]
+                          [--capability x] [--limit n] [--json]
+pilot mcp
 ```
 
 `pilot search` mirrors the SDK: positional arguments are Pilot names, flags are
 the query. Progress goes to stderr, results to stdout, so `--json` stays
 pipeable. Exit is non-zero only when *every* source failed. `--watch` shows the
 browser during a compile, which is the fastest way to see why a site is fighting
-back.
+back. `pilot search` also reports each source's outcome to the registry when one
+is configured; `--no-report` opts out.
 
 ---
 
-## 8. Errors
+## 8. The registry
+
+Compiling is the expensive step. The registry exists so it is paid once per
+site, not once per developer.
+
+```text
+pilot publish <id>              push a compiled Pilot
+pilot install <id>[@version]    pull one down
+pilot registry list
+pilot registry search <text>    by site, capability, or field
+pilot registry versions <id>
+pilot registry health [id]      success rate, worst first
+```
+
+Backed by MongoDB, configured by `PILOT_REGISTRY_URI`. **Unset is a supported
+state**: without it, publish/install/health report that clearly and every other
+command behaves exactly as before. Pilots on disk remain the source of truth;
+the registry moves them, it is not a second way to run them.
+
+### 8.1 Why a document store
+
+A Pilot already is a document. Its `schema` block varies per capability, so
+there is no fixed table to flatten it into and adding a capability would
+otherwise require a migration. One document holds the artifact, the extraction
+script, and its provenance.
+
+Two collections:
+
+| Collection | Key | Holds |
+| --- | --- | --- |
+| `pilots` | `<id>@<version>` | artifact, script source, publisher, denormalized keywords |
+| `health` | — | one event per run of a Pilot |
+
+Publishing is a keyed upsert, so republishing a version replaces it rather than
+accumulating duplicates. Indexes are created on connect, not by a setup script:
+the registry has to work against a database nobody prepared.
+
+`registry search` uses a MongoDB text index over id, summary and keywords, and
+falls back to a regex query if that index is missing. Keywords include the
+Pilot's `discovered` list — the fields the explorer *saw* but did not extract —
+so searching `salary` finds sites that expose salaries even though no capability
+carries the field yet.
+
+### 8.2 Health
+
+Every `pilot search` reports per-source outcomes back to the registry,
+best-effort and opt-out (`--no-report`). It never blocks or fails a search, and
+it is wired at the CLI layer so that `sdk/` and `runtime/` stay free of a
+database dependency.
+
+An aggregation turns the event stream into a rolling success rate per version,
+sorted worst first — a repair queue rather than a dashboard. It keeps the last
+*error* seen rather than the last run's error code; taking the latter lets a
+Pilot that fails half the time read as healthy whenever its newest run happened
+to succeed.
+
+This is how Pilot learns that a site changed: from the searches people are
+already running, not from someone noticing and filing a bug.
+
+---
+
+## 9. MCP
+
+`pilot mcp` serves the same operations to Claude Code, Codex, or any MCP client
+over stdio.
+
+| Tool | Notes |
+| --- | --- |
+| `pilot_list` | Installed Pilots and their fields |
+| `pilot_search` | jobs.board@1 across sources, merged |
+| `pilot_run` | Any Pilot, raw records — for ad-hoc schemas |
+| `pilot_create` | Compile a new site. Slow (minutes). |
+| `pilot_repair` | Reproduces the failure first; no-ops if the Pilot still works |
+| `pilot_registry_search` | Check before compiling |
+| `pilot_install` / `pilot_publish` | Move Pilots between machines |
+| `pilot_health` | Worst-first repair queue |
+
+The point is not remote control of the CLI. It is that an agent needing data
+from a site with no API can compile a Pilot **once**, and the resulting tool
+outlives the conversation — for that agent, and via the registry for every other
+one. A browsing agent re-derives the same page every session and pays tokens
+each time; this pays at compile time and never again.
+
+Two constraints the implementation has to respect:
+
+- **stdout belongs to JSON-RPC.** The MCP handlers call `compile()` and
+  `executePilot()` directly rather than reusing `cli/`, whose functions print.
+  One stray write corrupts the stream and the client disconnects.
+- **Errors are returned, not thrown.** A thrown error reaches the agent as a
+  protocol failure it cannot reason about. `isError` plus the real
+  `CODE: message` lets it read what went wrong and choose something else —
+  which is also what makes `PILOT_BROKEN` actionable, since the search result
+  says outright that `pilot_repair` is the fix.
+
+`pilot_create` and `pilot_repair` stream progress as MCP log notifications and
+may exceed a client's default tool timeout.
+
+---
+
+## 10. Errors
 
 The distinction that matters most is between a site being temporarily
 unavailable and a Pilot being **wrong**:
@@ -309,10 +415,11 @@ unavailable and a Pilot being **wrong**:
 | `PILOT_BROKEN` | The script no longer matches the site, timed out, or returned the wrong shape. `pilot repair` is the fix |
 | `UNKNOWN_PILOT` / `NO_PILOTS_ENABLED` / `INVALID_ARGUMENT` | Caller error |
 | `AI_NOT_CONFIGURED` / `AI_REQUEST_FAILED` / `VALIDATION_FAILED` | Compile-time only |
+| `REGISTRY_NOT_CONFIGURED` / `REGISTRY_UNAVAILABLE` | Registry only. Never reaches a search — telemetry swallows both |
 
 ---
 
-## 9. Test board
+## 11. Test board
 
 `pilot testboard` serves a local job board on port 4100, to test what live sites
 cannot be asked to do on demand.
@@ -327,7 +434,7 @@ cannot be asked to do on demand.
 
 ---
 
-## 10. Completion gates
+## 12. Completion gates
 
 **Stage 1.** ✅ `pilot create` compiles a working Pilot without hand-editing.
 Verified against the local board (12 steps, 1 attempt) and two live sites.
@@ -347,7 +454,7 @@ network.
 
 ---
 
-## 11. Risks
+## 13. Risks
 
 **Some boards cannot be explored at all.** Measured 2026-09-19 by running
 Pilot's own browser against each:
