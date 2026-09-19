@@ -6,6 +6,7 @@ import { runCreate } from "./create.js";
 import { runList } from "./list.js";
 import { runSearch } from "./search.js";
 import { runRepair } from "./repair.js";
+import { runCapabilities } from "./capabilities.js";
 
 const HELP = `Pilot — compile any website into a reusable data API.
 
@@ -18,14 +19,18 @@ const HELP = `Pilot — compile any website into a reusable data API.
     --attempts <n>              Compile attempts before giving up (default: 3)
 
   pilot list                    Show installed Pilots and whether they are enabled
+  pilot capabilities            Show shared function types and schema versions
   pilot enable <id>             Include a Pilot in unqualified searches
   pilot disable <id>            Exclude it
 
   pilot search [targets...]     Run a search across Pilots
+    --capability <id>           Function type (default: jobs.board@1)
     --keywords <text>           Filter by keywords
     --location <text>           Filter by location
     --type <type>               internship | full-time | part-time | contract
     --limit <n>                 Max results per Pilot
+    --filter <field=value,...>  Filter generated fields, e.g. seniority=Senior
+    --param <field=value,...>   Parameters for non-job capabilities
     --json                      Machine-readable output
 
   pilot repair <id>             Recompile a Pilot whose site changed
@@ -53,6 +58,8 @@ async function main(): Promise<number> {
       return runCreate(env, args);
     case "list":
       return runList(env, args);
+    case "capabilities":
+      return runCapabilities(env, args);
     case "enable":
     case "disable": {
       const id = args.positional[0];

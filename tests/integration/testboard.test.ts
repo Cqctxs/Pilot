@@ -13,19 +13,25 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startTestBoard } from "../../src/testboard/server.js";
 import { PilotStore } from "../../src/pilots/store.js";
 import { executePilot } from "../../src/runtime/execute.js";
-import { JOBS_CAPABILITY, JOBS_SCHEMA, filterJobs, toJob, type Job } from "../../src/capability/jobs.js";
+import {
+  JOBS_CAPABILITY,
+  JOBS_SCHEMA,
+  filterJobs,
+  toJob,
+  type Job,
+  type JobQuery,
+} from "../../src/capability/jobs.js";
 import { loadEnv } from "../../src/shared/env.js";
-
-const PORT = 4137;
-const BASE = `http://127.0.0.1:${PORT}`;
 
 let server: Server;
 let root: string;
 let store: PilotStore;
+let base: string;
 
 /** A script exactly like one the compiler would submit for a JSON-backed site. */
-const SCRIPT = `export async function search(page, query) {
-  const url = \`${BASE}/api/jobs?q=\${encodeURIComponent(query.keywords || "")}&loc=\${encodeURIComponent(query.location || "")}\`;
+function script(): string {
+  return `export async function search(page, query) {
+  const url = \`${base}/api/jobs?q=\${encodeURIComponent(query.keywords || "")}&loc=\${encodeURIComponent(query.location || "")}\`;
   const response = await fetch(url);
   const body = await response.json();
   return body.results.map((job) => ({
@@ -35,23 +41,38 @@ const SCRIPT = `export async function search(page, query) {
     url: job.url,
     employmentType: job.employmentType,
     postedAt: job.postedAt,
+    seniority: job.title.includes("Intern") ? "Entry" : "Mid",
   }));
 }
 `;
+}
+
+const TEST_SCHEMA = {
+  ...JOBS_SCHEMA,
+  fields: [
+    ...JOBS_SCHEMA.fields,
+    {
+      name: "seniority",
+      type: "string" as const,
+      required: false,
+      description: "Experience level shown by the board",
+    },
+  ],
+};
 
 function install(): void {
   const dir = path.join(root, "pilots", "testboard", "1.0.0");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "extract.mjs"), SCRIPT);
+  writeFileSync(path.join(dir, "extract.mjs"), script());
   writeFileSync(
     path.join(dir, "pilot.json"),
     JSON.stringify({
       pilotFormatVersion: 2,
       id: "testboard",
       version: "1.0.0",
-      target: { name: "Test Board", url: BASE },
+      target: { name: "Test Board", url: base },
       capability: JOBS_CAPABILITY,
-      schema: JOBS_SCHEMA,
+      schema: TEST_SCHEMA,
       artifact: { kind: "script", entry: "extract.mjs", needsBrowser: false },
       discovered: [],
       origin: "handwritten",
@@ -61,18 +82,22 @@ function install(): void {
   );
 }
 
-async function search(query: { keywords?: string; location?: string }): Promise<Job[]> {
-  const records = await executePilot(store.get("testboard"), {
+async function search(query: JobQuery): Promise<Job[]> {
+  const loaded = store.get("testboard");
+  const records = await executePilot(loaded, {
     query: { keywords: query.keywords ?? "", location: query.location ?? "" },
   });
   const jobs = records
-    .map((record) => toJob("testboard", record))
+    .map((record) => toJob("testboard", record, loaded.pilot.schema))
     .filter((job): job is Job => job !== null);
   return filterJobs(jobs, query);
 }
 
 beforeAll(async () => {
-  server = await startTestBoard({ port: PORT, layout: "a" });
+  server = await startTestBoard({ port: 0, layout: "a" });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Test board did not bind a TCP port");
+  base = `http://127.0.0.1:${address.port}`;
   root = mkdtempSync(path.join(tmpdir(), "pilot-test-"));
   install();
   store = new PilotStore({
@@ -121,5 +146,14 @@ describe("running a script Pilot against the test board", () => {
   it("resolves every url to something absolute", async () => {
     const jobs = await search({});
     expect(jobs.every((job) => job.url.startsWith("http"))).toBe(true);
+  });
+
+  it("preserves and filters a compiler-added field", async () => {
+    const all = await search({});
+    expect(all[0]?.attributes.seniority).toBe("Entry");
+
+    const mid = await search({ filters: { seniority: "Mid" } });
+    expect(mid).toHaveLength(4);
+    expect(mid.every((job) => job.attributes.seniority === "Mid")).toBe(true);
   });
 });

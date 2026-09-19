@@ -108,7 +108,32 @@ export const EXPLORER_TOOLS = [
             type: "array",
             items: { type: "string" },
             description:
-              "Useful fields this site exposes that are NOT in the target schema, e.g. salary, seniority. Recorded, not extracted.",
+              "Useful fields this site exposes but that cannot be extracted reliably enough to add to the API. Recorded for later investigation.",
+          },
+          additionalFields: {
+            type: "array",
+            maxItems: 20,
+            items: {
+              type: "object",
+              properties: {
+                name: {
+                  type: "string",
+                  description: "A stable lower-camel-case API field name, e.g. salary or seniority.",
+                },
+                type: {
+                  type: "string",
+                  enum: ["string", "number", "boolean", "url"],
+                },
+                description: {
+                  type: "string",
+                  description: "What the field means, independently of this website's label for it.",
+                },
+              },
+              required: ["name", "type", "description"],
+              additionalProperties: false,
+            },
+            description:
+              "Optional fields not already in the target schema that this script extracts reliably. The script must return each proposed field using exactly this name.",
           },
           notes: {
             type: "string",

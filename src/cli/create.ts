@@ -1,6 +1,7 @@
 import { compile } from "../compiler/index.js";
 import { PilotStore } from "../pilots/store.js";
 import { JOBS_CAPABILITY, JOBS_SCHEMA } from "../capability/jobs.js";
+import { CapabilityRegistry } from "../capability/registry.js";
 import { parseFieldList, type DataSchema } from "../shared/schema.js";
 import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import type { PilotEnv } from "../shared/env.js";
@@ -25,17 +26,37 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
   const capabilityFlag = flagString(args, "capability");
   let capability: string | null;
   let schema: DataSchema;
+  let capabilitySchemaVersion: string | undefined;
+  let newCapability = false;
+  const registry = new CapabilityRegistry(env);
 
   if (fields) {
-    capability = null;
-    schema = parseFieldList(fields);
+    const seed = parseFieldList(fields);
+    if (capabilityFlag) {
+      capability = capabilityFlag;
+      const definition = registry.find(capability);
+      schema = definition?.schema ?? { ...seed, name: capability };
+      capabilitySchemaVersion = definition?.version;
+      newCapability = definition === null;
+    } else {
+      capability = null;
+      schema = seed;
+    }
   } else {
     capability = capabilityFlag ?? JOBS_CAPABILITY;
-    if (capability !== JOBS_CAPABILITY) {
-      process.stderr.write(`Unknown capability "${capability}". Known: ${JOBS_CAPABILITY}\n`);
-      return 1;
+    const definition = registry.find(capability);
+    if (definition) {
+      schema = definition.schema;
+      capabilitySchemaVersion = definition.version;
+    } else if (capability === JOBS_CAPABILITY) {
+      schema = JOBS_SCHEMA;
+      newCapability = true;
+    } else {
+      // An empty draft is valid only inside the compiler. The submitted script
+      // must propose real fields, and the persisted schema still requires one.
+      schema = { name: capability, fields: [] };
+      newCapability = true;
     }
-    schema = JOBS_SCHEMA;
   }
 
   const id = flagString(args, "id") ?? deriveId(url);
@@ -50,6 +71,7 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     name: flagString(args, "name"),
     capability,
     schema,
+    capabilitySchemaVersion,
     query: {
       keywords: flagString(args, "query") ?? "",
       location: flagString(args, "location") ?? "",
@@ -63,9 +85,18 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     onProgress: (message) => process.stderr.write(`  ${message}\n`),
   });
 
+  if (newCapability && capability) {
+    const definition = registry.ensure(capability, result.pilot.schema);
+    result.pilot.capabilitySchemaVersion = definition.version;
+    result.pilot.schemaExtensions = [];
+  }
+
   const store = new PilotStore(env);
   const dir = store.save(result.pilot, result.code, result.records.slice(0, 10));
   store.setEnabled(id, true);
+  const promotion = capability
+    ? registry.promoteFromPilots(capability, store.all().map((item) => item.pilot))
+    : null;
 
   const transport = result.pilot.artifact.needsBrowser ? "browser" : "http";
   process.stdout.write(
@@ -73,8 +104,19 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
       `  ${result.records.length} records extracted\n` +
       `  ${dir}\n`,
   );
+  const startingFields = new Set(schema.fields.map((field) => field.name));
+  const addedFields = result.pilot.schema.fields.filter((field) => !startingFields.has(field.name));
+  if (addedFields.length > 0) {
+    process.stdout.write(`  added API fields: ${addedFields.map((field) => field.name).join(", ")}\n`);
+  }
   if (result.pilot.discovered.length > 0) {
-    process.stdout.write(`  also available here: ${result.pilot.discovered.join(", ")}\n`);
+    process.stdout.write(`  noticed but not promoted: ${result.pilot.discovered.join(", ")}\n`);
+  }
+  if (promotion && promotion.promoted.length > 0) {
+    process.stdout.write(
+      `  promoted to ${capability}@schema-${promotion.definition.version}: ` +
+        `${promotion.promoted.map((field) => field.name).join(", ")}\n`,
+    );
   }
   process.stdout.write(`\nTry it:  pilot search ${id}\n`);
   return 0;

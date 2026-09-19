@@ -34,7 +34,15 @@ A complete ES module:
 
 Rules for the script:
 - Return an array of plain objects using EXACTLY the target schema's field names.
-  Extra keys are discarded. Missing optional fields should be null, not omitted.
+  Missing optional fields should be null, not omitted.
+- Interpret the site's labels in context and map them directly to the target
+  schema. For example, a site field named "role" might map to employmentType on
+  one site and title on another; the generated JavaScript owns that mapping.
+- If the listing exposes another useful field reliably, you may add it to
+  additionalFields when submitting. Use a stable lower-camel-case name, include
+  that exact key in every returned object, and choose the narrowest honest type.
+  Reuse an existing schema field whenever it already represents the concept.
+  Do not propose a field that requires one detail request per record.
 - Required fields must be present on essentially every record. A record you
   cannot get a required field for should be skipped, not half-filled.
 - Interpolate query.keywords and query.location into the URL when the site
@@ -69,11 +77,14 @@ export function buildTaskPrompt(input: {
   return `TARGET SITE: ${input.url}
 
 TARGET SCHEMA "${input.schema.name}" — your script must return objects with these keys:
-${fields}
+${fields || "  (new capability — propose its useful output fields in additionalFields)"}
 
 The script will be tested with the query: ${input.sampleQuery || "(empty — return the default listing)"}
 
-Explore the site and submit a working script.`;
+Explore the site and submit a working script. The compiler will validate both
+the required schema and any optional additionalFields you propose. If this is a
+new capability with no starting fields, additionalFields must define its useful
+base API and the script must extract at least one of them.`;
 }
 
 export function buildRetryPrompt(problems: string): string {

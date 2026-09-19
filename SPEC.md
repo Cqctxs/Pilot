@@ -101,6 +101,16 @@ await jobs.search("linkedin", { keywords: "software intern" });
 await jobs.search({ keywords: "software intern", location: "Boston" });
 ```
 
+Other function types use the generic capability client:
+
+```ts
+const hotels = pilot().capability("hotels.search@1");
+await hotels.search("booking", {
+  params: { destination: "Toronto", checkIn: "2026-10-10" },
+  filters: { stars: 5 },
+});
+```
+
 **Argument rule.** Positional string arguments name Pilots; an optional trailing
 object is the query. Both are optional and compose freely.
 
@@ -114,6 +124,7 @@ caller's decision, and silently skipping a named target would be worse.
 interface SearchResult {
   jobs: Job[];
   sources: Array<{ pilotId: string; ok: boolean; count: number; durationMs: number; error?: PilotError }>;
+  fields: string[];
 }
 ```
 
@@ -136,6 +147,8 @@ One dead source must never fail the whole search. Sources run concurrently.
    substring matching discards every one. Opt in with `strictLocation` for a
    source that ignores location entirely.
 5. Cross-listed postings are deduped on normalized title + company.
+6. Optional fields added by the compiler are exposed on `Job.attributes` and
+   can be filtered locally through `query.filters`.
 
 ---
 
@@ -233,13 +246,40 @@ open** on the site — it investigates and corrects rather than restarting cold.
 Three attempts by default, a 30-step budget. A Pilot is written only after a
 real run produces records that satisfy the schema.
 
-### Discovery
+### Discovery and optional fields
 
-The explorer also reports fields the site exposes beyond the schema — salary and
-description snippet on Talent.com, seniority and job function on LinkedIn. These
-are recorded in `discovered`, **not extracted**. A capability's shape is fixed so
-results stay comparable across sources; discovery is how that shape grows later,
-deliberately, rather than per-site drift.
+The generated JavaScript owns the mapping from a website's vocabulary to the
+API schema. If `role` means employment type on one site and job title on another,
+the two scripts assign it to different output properties; runtime alias
+resolution is unnecessary.
+
+The explorer may propose useful optional fields beyond the starting schema —
+salary and description snippet on Talent.com, or seniority and job function on
+LinkedIn. A proposal includes a lower-camel-case name, scalar type and semantic
+description, and the submitted script returns that exact key. The compiler
+rejects invalid or conflicting definitions and rejects a proposed field unless
+the validation run extracts at least one real value. Accepted fields are copied
+into that Pilot's self-describing schema and exposed as `Job.attributes`.
+
+Fields the model notices but cannot extract reliably remain in `discovered` for
+later investigation. This happens only while compiling or repairing; ordinary
+searches never call a model or mutate their schema.
+
+### Shared capability refinement
+
+`config/capabilities/<id>.json` is the versioned base schema for a function
+type. Each Pilot records the shared schema revision it compiled against and the
+validated optional fields it adds on top. A field remains Pilot-local at first.
+When two distinct Pilots implement the same name and type, it is promoted as an
+optional field in the next minor schema revision. Future Pilots receive that
+refined shared schema automatically. Conflicting types are never promoted.
+
+Required/core fields are fixed for a major capability version. Changing them is
+a breaking change and requires a new capability major, such as `hotels.search@2`.
+For a capability id that has no manifest yet, the compiler starts with an empty
+draft and the model proposes the initial fields. The registry is written only
+after a real extraction validates at least one proposed field. `--fields` may be
+used to seed the initial shape but is not required.
 
 ### Repair
 
@@ -263,7 +303,9 @@ directory scan, publishing is a commit, inspecting is `cat`.
   "version": "1.0.0",
   "target": { "name": "LinkedIn", "url": "https://www.linkedin.com/jobs/search" },
   "capability": "jobs.board@1",
+  "capabilitySchemaVersion": "1.1.0",
   "schema": { "...": "copied in, so a Pilot is self-describing" },
+  "schemaExtensions": [{ "name": "industries", "type": "string", "required": false, "description": "Industries shown by the source" }],
   "artifact": { "kind": "script", "entry": "extract.mjs", "needsBrowser": false },
   "discovered": ["seniority level", "job function", "industries"],
   "compiler": { "model": "gpt-5.5", "attempts": 1, "steps": 17, "repairedFrom": null },
@@ -280,12 +322,14 @@ are enabled, separately from the artifacts, so enabling one never rewrites it.
 ## 7. CLI
 
 ```text
-pilot create <url> [--id x] [--name x] [--capability jobs.board@1 | --fields a,b,c]
+pilot create <url> [--id x] [--name x] [--capability function.type@1] [--fields a,b,c]
                    [--query text] [--location text] [--attempts n] [--steps n] [--watch]
 pilot list [--json]
+pilot capabilities [--json]
 pilot enable <id> | pilot disable <id>
 pilot search [targets...] [--keywords x] [--location x] [--type x] [--limit n]
-                          [--strict-location] [--json]
+                          [--capability id] [--param field=value,...]
+                          [--filter field=value,...] [--strict-location] [--json]
 pilot repair <id> [--failure text]
 pilot testboard [--port n] [--layout a|b]
 ```

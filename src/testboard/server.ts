@@ -17,8 +17,9 @@ export interface TestBoardOptions {
 
 export function startTestBoard(options: TestBoardOptions): Promise<Server> {
   const host = options.host ?? "127.0.0.1";
+  let boundPort = options.port;
   const server = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://${host}:${options.port}`);
+    const url = new URL(req.url ?? "/", `http://${host}:${boundPort}`);
     const keywords = url.searchParams.get("q") ?? "";
     const location = url.searchParams.get("loc") ?? "";
 
@@ -27,7 +28,7 @@ export function startTestBoard(options: TestBoardOptions): Promise<Server> {
     if (url.pathname === "/api/jobs") {
       const jobs = searchJobs(keywords, location).map((job) => ({
         ...job,
-        url: `http://${host}:${options.port}/jobs/${job.id}`,
+        url: `http://${host}:${boundPort}/jobs/${job.id}`,
       }));
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ count: jobs.length, results: jobs }));
@@ -58,6 +59,10 @@ export function startTestBoard(options: TestBoardOptions): Promise<Server> {
   });
 
   return new Promise((resolve) => {
-    server.listen(options.port, host, () => resolve(server));
+    server.listen(options.port, host, () => {
+      const address = server.address();
+      if (address && typeof address === "object") boundPort = address.port;
+      resolve(server);
+    });
   });
 }

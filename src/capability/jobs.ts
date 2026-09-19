@@ -6,7 +6,7 @@
  * Adding a second capability means adding a file like this one; nothing in
  * `compiler/` or `runtime/` needs to know it exists.
  */
-import type { DataSchema, RawRecord } from "../shared/schema.js";
+import type { DataSchema, FieldSpec, RawRecord } from "../shared/schema.js";
 
 export const JOBS_CAPABILITY = "jobs.board@1" as const;
 
@@ -35,6 +35,9 @@ export type EmploymentType =
   | "temporary"
   | "unknown";
 
+export type JobAttributeValue = string | number | boolean | null;
+export type JobFilterValue = Exclude<JobAttributeValue, null>;
+
 export interface Job {
   /** Stable within a run: `<pilotId>:<hash of url>`. */
   id: string;
@@ -47,12 +50,16 @@ export interface Job {
   /** Whether `type` came from the site or was inferred from the title. */
   typeBasis: "source" | "title" | "unknown";
   postedAt: string | null;
+  /** Optional fields that this Pilot's compiler added to its validated schema. */
+  attributes: Record<string, JobAttributeValue>;
 }
 
 export interface JobQuery {
   keywords?: string;
   location?: string;
   type?: EmploymentType;
+  /** Local exact-match filters over generated fields. Arrays mean "match any". */
+  filters?: Record<string, JobFilterValue | JobFilterValue[]>;
   /** Cap per Pilot, not across the fan-out. */
   limit?: number;
   /**
@@ -129,7 +136,20 @@ function stableId(source: string, url: string): string {
 }
 
 /** Turn one extracted record into a Job, or `null` if it lacks required fields. */
-export function toJob(source: string, record: RawRecord): Job | null {
+const CORE_FIELDS = new Set([
+  "title",
+  "company",
+  "location",
+  "url",
+  "employmentType",
+  "postedAt",
+]);
+
+export function toJob(
+  source: string,
+  record: RawRecord,
+  schema: DataSchema = JOBS_SCHEMA,
+): Job | null {
   const title = record.title?.trim();
   const url = record.url?.trim();
   if (!title || !url) return null;
@@ -144,7 +164,34 @@ export function toJob(source: string, record: RawRecord): Job | null {
     type,
     typeBasis,
     postedAt: record.postedAt ? normalizeDisplay(record.postedAt) : null,
+    attributes: collectAttributes(record, schema),
   };
+}
+
+function collectAttributes(
+  record: RawRecord,
+  schema: DataSchema,
+): Record<string, JobAttributeValue> {
+  const attributes: Record<string, JobAttributeValue> = {};
+  for (const field of schema.fields) {
+    if (CORE_FIELDS.has(field.name)) continue;
+    attributes[field.name] = coerceAttribute(record[field.name] ?? null, field);
+  }
+  return attributes;
+}
+
+function coerceAttribute(value: string | null, field: FieldSpec): JobAttributeValue {
+  if (value === null) return null;
+  if (field.type === "number") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (field.type === "boolean") {
+    if (/^(true|yes|1)$/i.test(value)) return true;
+    if (/^(false|no|0)$/i.test(value)) return false;
+    return null;
+  }
+  return normalizeDisplay(value);
 }
 
 // --- Filtering and merging -------------------------------------------------
@@ -176,18 +223,70 @@ export function filterJobs(jobs: Job[], query: JobQuery): Job[] {
       if (!haystack.includes(location) && !(location === "remote" && remote)) return false;
     }
     if (query.type && job.type !== query.type) return false;
+    if (query.filters) {
+      for (const [field, requested] of Object.entries(query.filters)) {
+        const actual = jobField(job, field);
+        const expected = Array.isArray(requested) ? requested : [requested];
+        if (!expected.some((value) => fieldValuesEqual(actual, value))) return false;
+      }
+    }
     return true;
   });
 }
 
+function jobField(job: Job, field: string): JobAttributeValue {
+  switch (field) {
+    case "employmentType":
+    case "type":
+      return job.type;
+    case "title":
+      return job.title;
+    case "company":
+      return job.company;
+    case "location":
+      return job.location;
+    case "url":
+      return job.url;
+    case "postedAt":
+      return job.postedAt;
+    default:
+      return job.attributes[field] ?? null;
+  }
+}
+
+function fieldValuesEqual(actual: JobAttributeValue, expected: JobFilterValue): boolean {
+  if (actual === null) return false;
+  if (typeof actual === "number" || typeof expected === "number") {
+    return Number(actual) === Number(expected);
+  }
+  if (typeof actual === "boolean" || typeof expected === "boolean") {
+    const normalized = (value: JobFilterValue): boolean | null => {
+      if (typeof value === "boolean") return value;
+      if (/^(true|yes|1)$/i.test(String(value))) return true;
+      if (/^(false|no|0)$/i.test(String(value))) return false;
+      return null;
+    };
+    return normalized(actual) === normalized(expected);
+  }
+  return normalizeForMatch(actual) === normalizeForMatch(expected);
+}
+
 /** Same posting cross-listed on two boards collapses to one entry. */
 export function dedupeJobs(jobs: Job[]): Job[] {
-  const seen = new Set<string>();
+  const seen = new Map<string, Job>();
   const out: Job[] = [];
   for (const job of jobs) {
     const key = `${normalizeForMatch(job.title)}|${normalizeForMatch(job.company)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const existing = seen.get(key);
+    if (existing) {
+      for (const [name, value] of Object.entries(job.attributes)) {
+        if (existing.attributes[name] === undefined || existing.attributes[name] === null) {
+          existing.attributes[name] = value;
+        }
+      }
+      continue;
+    }
+    seen.set(key, job);
     out.push(job);
   }
   return out;

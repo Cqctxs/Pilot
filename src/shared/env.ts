@@ -35,6 +35,8 @@ export interface PilotEnv {
   pilotsDir: string;
   /** Which Pilots are enabled, and their bound variables. */
   configFile: string;
+  /** Versioned shared schemas that Pilots of the same capability build on. */
+  capabilitiesDir: string;
   /** Compiler only. Running a compiled Pilot never needs a key. */
   openaiApiKey: string | null;
   /** Model used to generate recipes. Required to compile, never to run. */
@@ -67,6 +69,10 @@ export function loadEnv(): PilotEnv {
     projectRoot,
     pilotsDir: path.resolve(projectRoot, envString("PILOT_PILOTS_DIR", "pilots")),
     configFile: path.resolve(projectRoot, envString("PILOT_CONFIG", "config/pilots.json")),
+    capabilitiesDir: path.resolve(
+      projectRoot,
+      envString("PILOT_CAPABILITIES_DIR", "config/capabilities"),
+    ),
     openaiApiKey: process.env.OPENAI_API_KEY?.trim() || null,
     compilerModel: process.env.PILOT_COMPILER_MODEL?.trim() || null,
     testBoardPort,

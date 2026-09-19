@@ -72,7 +72,9 @@ export async function validateScript(input: {
       version: "0.0.1",
       target: { name: input.pilotId, url: input.targetUrl },
       capability: null,
+      capabilitySchemaVersion: null,
       schema: input.schema,
+      schemaExtensions: [],
       artifact: { kind: "script", entry: "extract.mjs", needsBrowser: input.needsBrowser },
       discovered: [],
       origin: "ai-generated",
@@ -124,6 +126,20 @@ function judge(records: RawRecord[], schema: DataSchema): { ok: boolean; problem
       const bad = records.find((record) => record[field.name] && !isUrlish(record[field.name]!));
       if (bad) {
         problems.push(`Field "${field.name}" is not a URL: ${JSON.stringify(bad[field.name])}`);
+      }
+    } else if (field.type === "number") {
+      const bad = records.find(
+        (record) => record[field.name] && !Number.isFinite(Number(record[field.name])),
+      );
+      if (bad) {
+        problems.push(`Field "${field.name}" is not a number: ${JSON.stringify(bad[field.name])}`);
+      }
+    } else if (field.type === "boolean") {
+      const bad = records.find(
+        (record) => record[field.name] && !/^(true|false|yes|no|1|0)$/i.test(record[field.name]!),
+      );
+      if (bad) {
+        problems.push(`Field "${field.name}" is not a boolean: ${JSON.stringify(bad[field.name])}`);
       }
     }
   }
