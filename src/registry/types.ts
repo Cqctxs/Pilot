@@ -81,6 +81,19 @@ export interface HealthSummary {
   runs: number;
   successes: number;
   successRate: number;
+  /**
+   * Runs that reported success and returned nothing.
+   *
+   * The failure mode this exists for is the quiet one. A script whose selector
+   * stopped matching, or that was served a block page, very often returns `[]`
+   * rather than throwing — and `[]` is also what a genuine no-match looks like,
+   * so the run is recorded as a success and the Pilot reads as perfectly
+   * healthy while being completely dead. A success rate alone cannot see that.
+   * A Pilot returning nothing on every run is either broken or useless, and
+   * both are worth a look, so this is counted and sorted on.
+   */
+  emptyRuns: number;
+  emptyRate: number;
   avgRecords: number;
   lastRunAt: string;
   lastError: string | null;

@@ -192,20 +192,38 @@ export async function runRegistry(env: PilotEnv, args: ParsedArgs): Promise<numb
         return 0;
       }
       const width = Math.max(...rows.map((row) => row.pilotId.length), 2);
-      process.stdout.write(`${"ID".padEnd(width)}  VERSION  RUNS  OK%   AVG RECS  LAST ERROR\n`);
+      process.stdout.write(
+        `${"ID".padEnd(width)}  VERSION  RUNS  OK%   EMPTY%  AVG RECS  LAST ERROR\n`,
+      );
       for (const row of rows) {
         const rate = `${Math.round(row.successRate * 100)}%`;
+        const empty = `${Math.round(row.emptyRate * 100)}%`;
         process.stdout.write(
           `${row.pilotId.padEnd(width)}  ${row.version.padEnd(7)}  ` +
             `${String(row.runs).padStart(4)}  ${rate.padStart(4)}  ` +
+            `${empty.padStart(6)}  ` +
             `${String(row.avgRecords).padStart(8)}  ${row.lastError ?? "—"}\n`,
         );
       }
-      // Worst first, so the top line is the next thing to repair.
-      const broken = rows.filter((row) => row.successRate < 0.5);
-      if (broken.length > 0) {
+
+      // Worst first, so the top line is the next thing to repair. Two different
+      // kinds of broken, and the quiet one is easy to miss: a Pilot that always
+      // succeeds and always returns nothing looks perfect in the OK% column.
+      const failing = rows.filter((row) => row.successRate < 0.5);
+      const hollow = rows.filter(
+        (row) => row.successRate >= 0.5 && row.runs >= 3 && row.emptyRate > 0.8,
+      );
+      if (failing.length > 0) {
         process.stdout.write(
-          `\n${broken.length} Pilot(s) failing more than half the time. Try: pilot repair ${broken[0]!.pilotId}\n`,
+          `\n${failing.length} Pilot(s) failing more than half the time. ` +
+            `Try: pilot repair ${failing[0]!.pilotId}\n`,
+        );
+      }
+      if (hollow.length > 0) {
+        process.stdout.write(
+          `\n${hollow.length} Pilot(s) report success but return nothing. A site that ` +
+            `blocked us or changed its markup usually looks exactly like this.\n` +
+            `Try: pilot repair ${hollow[0]!.pilotId}\n`,
         );
       }
       return 0;

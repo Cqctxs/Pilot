@@ -1,10 +1,43 @@
 import { repair } from "../compiler/index.js";
-import { PilotStore } from "../pilots/store.js";
+import { PilotStore, type LoadedPilot } from "../pilots/store.js";
 import { executePilot } from "../runtime/execute.js";
 import { CapabilityRegistry } from "../capability/registry.js";
 import { toPilotError } from "../shared/errors.js";
 import type { PilotEnv } from "../shared/env.js";
+import type { RawRecord } from "../shared/schema.js";
 import { flagString, type ParsedArgs } from "./args.js";
+
+/**
+ * Run a Pilot and decide whether it is broken. `null` means it still works.
+ *
+ * "Did not throw" is not the same as "works". The common way a script dies is
+ * quietly: a selector stops matching, or a block page is served, and the
+ * extraction returns `[]` — which is also exactly what a genuine no-match looks
+ * like. Treating an empty result as proof of health is how a dead Pilot stays
+ * dead, because `pilot repair` refuses to touch it and the health report shows
+ * a perfect success rate. Someone asking to repair a Pilot that returns nothing
+ * is telling us something, so the empty result is the reproduction.
+ */
+export async function reproduceFailure(
+  loaded: LoadedPilot,
+  keywords: string,
+): Promise<string | null> {
+  let records: RawRecord[];
+  try {
+    records = await executePilot(loaded, { query: { keywords } });
+  } catch (cause) {
+    const error = toPilotError(cause);
+    return `${error.code}: ${error.message}`;
+  }
+  if (records.length > 0) return null;
+  return (
+    "The script ran without error and returned zero records. Either the site now returns " +
+    "nothing for this query, or the extraction silently stopped matching — from the " +
+    "outside those are indistinguishable, which is the problem. Work out which it is, " +
+    "and make the replacement throw rather than return [] when the results container is " +
+    "missing on the first page."
+  );
+}
 
 export async function runRepair(env: PilotEnv, args: ParsedArgs): Promise<number> {
   const id = args.positional[0];
@@ -26,15 +59,13 @@ export async function runRepair(env: PilotEnv, args: ParsedArgs): Promise<number
   let failure = flagString(args, "failure");
   if (!failure) {
     process.stderr.write("  reproducing the failure\n");
-    try {
-      const records = await executePilot(loaded);
-      process.stdout.write(`${id} still works (${records.length} records). Nothing to repair.\n`);
+    const reproduction = await reproduceFailure(loaded, flagString(args, "query") ?? "");
+    if (reproduction === null) {
+      process.stdout.write(`${id} still works. Nothing to repair.\n`);
       return 0;
-    } catch (cause) {
-      const error = toPilotError(cause);
-      failure = `${error.code}: ${error.message}`;
-      process.stderr.write(`  reproduced: ${failure}\n`);
     }
+    failure = reproduction;
+    process.stderr.write(`  reproduced: ${failure.split("\n")[0]}\n`);
   }
 
   const result = await repair({

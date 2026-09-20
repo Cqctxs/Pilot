@@ -322,6 +322,10 @@ export class Registry {
             _id: { pilotId: "$pilotId", version: "$version" },
             runs: { $sum: 1 },
             successes: { $sum: { $cond: ["$ok", 1, 0] } },
+            // Reported success, returned nothing. See HealthSummary.emptyRuns.
+            emptyRuns: {
+              $sum: { $cond: [{ $and: ["$ok", { $eq: ["$recordCount", 0] }] }, 1, 0] },
+            },
             avgRecords: { $avg: "$recordCount" },
             lastRunAt: { $max: "$at" },
             // The most recent *error*, not the most recent run's error code.
@@ -341,13 +345,23 @@ export class Registry {
             version: "$_id.version",
             runs: 1,
             successes: 1,
+            emptyRuns: 1,
             avgRecords: { $round: ["$avgRecords", 1] },
             successRate: { $divide: ["$successes", "$runs"] },
+            emptyRate: { $divide: ["$emptyRuns", "$runs"] },
+            // A run that succeeded and returned data. This is what "working"
+            // means, and it is what the repair queue is ordered by: a Pilot
+            // succeeding every time and returning nothing every time needs
+            // attention more urgently than one that fails loudly half the time,
+            // because nothing else will ever notice it.
+            usefulRate: {
+              $divide: [{ $subtract: ["$successes", "$emptyRuns"] }, "$runs"],
+            },
             lastRunAt: 1,
             lastError: { $ifNull: [{ $last: "$errors" }, null] },
           },
         },
-        { $sort: { successRate: 1, lastRunAt: -1 } },
+        { $sort: { usefulRate: 1, successRate: 1, lastRunAt: -1 } },
       ])
       .toArray();
     return rows as HealthSummary[];

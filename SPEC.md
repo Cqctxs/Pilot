@@ -343,6 +343,20 @@ is left alone, since replacing a known-good script with an unproven one is a
 regression. Then it re-explores with the old script and the observed failure as
 context. Same validation gate, minor version bump, `repairedFrom` recorded.
 
+**Returning nothing counts as a failure.** The usual way a compiled script dies
+is quietly: a selector stops matching, or a block page comes back, and the
+extraction returns `[]` — which is also what a genuine no-match looks like.
+Treating that as health is how a dead Pilot stays dead, because repair declines
+to touch it and the success rate reads 100%. So an empty reproduction is passed
+to the compiler as the failure, with the instruction that the replacement throw
+rather than return `[]` when the results container is missing on page one.
+
+The same blind spot is closed in telemetry: `HealthSummary` counts `emptyRuns`
+alongside successes, `pilot registry health` shows an EMPTY% column, and the
+repair queue is ordered by the runs that succeeded **and returned data**. A
+Pilot at 100% success and 100% empty sorts above one that fails loudly half the
+time, because nothing else will ever notice the first one.
+
 ---
 
 ## 6. Pilot artifacts

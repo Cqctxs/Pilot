@@ -218,3 +218,65 @@ describe("capabilities", () => {
     await expect(registry.fetchCapability("nope.search@1")).rejects.toThrow(/no capability named/);
   });
 });
+
+/**
+ * The failure mode a success rate cannot see.
+ *
+ * A script whose selector stopped matching, or that was served a block page,
+ * usually returns `[]` rather than throwing — and `[]` is also a genuine
+ * no-match, so the run is recorded as a success. Without counting empties, a
+ * completely dead Pilot sits at 100% and never enters the repair queue.
+ */
+describe("health: silently empty Pilots", () => {
+  it("separates succeeding-with-data from succeeding-with-nothing", async () => {
+    const version = "9.0.0";
+    for (let i = 0; i < 4; i += 1) {
+      await registry.report({
+        pilotId: "hollow",
+        version,
+        ok: true,
+        recordCount: 0,
+        durationMs: 120,
+        errorCode: null,
+      });
+    }
+    await registry.report({
+      pilotId: "hollow",
+      version,
+      ok: true,
+      recordCount: 3,
+      durationMs: 120,
+      errorCode: null,
+    });
+
+    const [row] = await registry.healthReport("hollow");
+    expect(row).toBeDefined();
+    expect(row!.runs).toBe(5);
+    // Perfect by the old measure, which is exactly the trap.
+    expect(row!.successRate).toBe(1);
+    expect(row!.emptyRuns).toBe(4);
+    expect(row!.emptyRate).toBeCloseTo(0.8);
+  });
+
+  it("ranks a hollow Pilot above a loudly failing one in the repair queue", async () => {
+    const version = "9.1.0";
+    // Never returns anything, never complains.
+    for (let i = 0; i < 4; i += 1) {
+      await registry.report({
+        pilotId: "quiet", version, ok: true, recordCount: 0, durationMs: 90, errorCode: null,
+      });
+    }
+    // Fails a quarter of the time but delivers the rest.
+    await registry.report({
+      pilotId: "loud", version, ok: false, recordCount: 0, durationMs: 90, errorCode: "PILOT_BROKEN",
+    });
+    for (let i = 0; i < 3; i += 1) {
+      await registry.report({
+        pilotId: "loud", version, ok: true, recordCount: 7, durationMs: 90, errorCode: null,
+      });
+    }
+
+    const rows = (await registry.healthReport()).filter((row) => row.version === version);
+    expect(rows.map((row) => row.pilotId)).toEqual(["quiet", "loud"]);
+  });
+});
