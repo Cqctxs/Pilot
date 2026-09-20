@@ -10,6 +10,7 @@ import { runRepair } from "./repair.js";
 import { runCapabilities } from "./capabilities.js";
 import { runFields } from "./fields.js";
 import { runInit } from "./init.js";
+import { runTypes } from "./types.js";
 
 const HELP = `Pilot — compile any website into a reusable data API.
 
@@ -57,6 +58,8 @@ KEEP WORKING
 
   pilot init                    Let this project's coding agent see your Pilots
                                 (writes .mcp.json + a CLAUDE.md note)
+  pilot types                   Generate TypeScript for the installed
+                                capabilities, so wrong field names fail to compile
   pilot mcp                     Serve Pilot over MCP to Claude Code or Codex
   pilot help --all              Everything, including the older spellings
 
@@ -107,6 +110,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
   ],
   list: ["json", "remote"],
   init: ["force"],
+  types: ["out", "dry-run"],
   ls: ["json", "remote"],
   show: ["json"],
   rm: ["json", "force"],
@@ -156,6 +160,8 @@ async function main(): Promise<number> {
       }
       return runCreate(env, args);
     }
+    case "types":
+      return runTypes(env, args);
     case "init":
       return runInit(env, args);
     case "ls":

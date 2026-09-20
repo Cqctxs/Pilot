@@ -145,6 +145,8 @@ pilot registry list           Every published Pilot
 pilot registry search <text>  Find one by site, capability, or field
 pilot registry health [id]    Success rate per Pilot, worst first
 
+pilot types                   TypeScript for the installed capabilities
+pilot init                    Set this project up for a coding agent
 pilot mcp                     Serve Pilot over MCP to Claude Code / Codex
 ```
 
@@ -189,7 +191,9 @@ pilot init    # writes .mcp.json + a CLAUDE.md note, in any project
 pilot mcp     # the stdio MCP server it points at
 ```
 
-In a project that depends on Pilot, `pilot init` is the whole setup. The agent
+In a project that depends on Pilot, `pilot init` is the whole setup. It writes
+the config, then reports what the project has and names the next command —
+restore a lockfile, compile the first Pilot, or generate types. The agent
 then reads `pilot_capabilities` for the interface and `pilot_list` for the sites,
 and calls `pilot_search` instead of writing a scraper.
 

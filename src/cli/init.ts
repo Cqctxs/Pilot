@@ -12,6 +12,8 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { PilotStore } from "../pilots/store.js";
+import { CapabilityRegistry } from "../capability/registry.js";
 import type { PilotEnv } from "../shared/env.js";
 import type { ParsedArgs } from "./args.js";
 
@@ -92,7 +94,48 @@ export function runInit(env: PilotEnv, args: ParsedArgs): number {
         `Codex and other MCP clients: point them at \`npx pilot mcp\`.\n`,
     );
   }
+  process.stdout.write(reportState(env, root));
   return 0;
+}
+
+/**
+ * What this project has, and the one command that follows from it.
+ *
+ * Writing the config is only half of setup, and the other half is different in
+ * every project — a fresh clone needs its Pilots restored, an empty folder
+ * needs one compiled, a project with capabilities wants types generated. Rather
+ * than a scaffolding command that guesses, say what is here and name the next
+ * step. Guessing wrong is worse than asking: `pilot install` on a lockfile that
+ * is not there is a confusing no-op, and compiling a site nobody asked for
+ * spends a model call and several minutes.
+ */
+function reportState(env: PilotEnv, root: string): string {
+  const pilots = new PilotStore(env).all();
+  const capabilities = new CapabilityRegistry(env).all();
+  const hasLock = existsSync(path.join(root, "pilot.lock.json"));
+  const hasTypes = existsSync(path.join(root, "pilot-types.d.ts"));
+  const registryReady = Boolean(env.registryUri);
+
+  const lines = [
+    `\nThis project: ${pilots.length} Pilot(s), ${capabilities.length} capability(ies)` +
+      `, registry ${registryReady ? "configured" : "not configured"}\n`,
+  ];
+
+  const next: string[] = [];
+  if (pilots.length === 0 && hasLock) {
+    next.push("pilot install            restore the Pilots in pilot.lock.json");
+  } else if (pilots.length === 0) {
+    next.push("pilot create <url>       compile the first one");
+    if (registryReady) next.push("pilot ls --remote        or take one someone published");
+  }
+  if (!registryReady) {
+    next.push("PILOT_REGISTRY_URI=...   in .env, to install or publish shared Pilots");
+  }
+  if (capabilities.length > 0 && !hasTypes) {
+    next.push("pilot types              TypeScript for the fields, so wrong names fail to compile");
+  }
+  if (next.length > 0) lines.push(`Next:\n${next.map((item) => `  ${item}`).join("\n")}\n`);
+  return lines.join("");
 }
 
 function readJson(file: string): Record<string, unknown> | null {

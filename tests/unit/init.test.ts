@@ -17,9 +17,22 @@ import { runInit } from "../../src/cli/init.js";
 import { parseArgs } from "../../src/cli/args.js";
 import type { PilotEnv } from "../../src/shared/env.js";
 
+/**
+ * A real enough project. The directories have to be actual paths, not
+ * undefined: `init` now reports what is installed, and `fs.existsSync(undefined)`
+ * answers false while warning — a test that passes through that path is
+ * testing Node's deprecation behaviour rather than ours.
+ */
 function project(): PilotEnv {
   const root = mkdtempSync(path.join(tmpdir(), "pilot-init-"));
-  return { projectRoot: root } as PilotEnv;
+  return {
+    projectRoot: root,
+    pilotsDir: path.join(root, "pilots"),
+    capabilitiesDir: path.join(root, "config", "capabilities"),
+    configFile: path.join(root, "config", "pilots.json"),
+    lockFile: path.join(root, "pilot.lock.json"),
+    registryUri: null,
+  } as PilotEnv;
 }
 
 describe("pilot init", () => {
@@ -65,5 +78,41 @@ describe("pilot init", () => {
     const env = project();
     writeFileSync(path.join(env.projectRoot, ".mcp.json"), "{ not json");
     expect(() => runInit(env, parseArgs([]))).toThrow(/not valid JSON/);
+  });
+});
+
+describe("pilot init state report", () => {
+  it("names the next command for an empty project", () => {
+    const env = project();
+    const out: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string) => { out.push(String(chunk)); return true; }) as typeof process.stdout.write;
+    try {
+      runInit(env, parseArgs([]));
+    } finally {
+      process.stdout.write = write;
+    }
+    const printed = out.join("");
+    expect(printed).toContain("0 Pilot(s)");
+    expect(printed).toContain("pilot create <url>");
+    // No registry configured, so publishing and installing need saying.
+    expect(printed).toContain("PILOT_REGISTRY_URI");
+  });
+
+  /** A fresh clone has the lockfile and nothing else; restoring is the step. */
+  it("prefers restoring a lockfile over compiling something new", () => {
+    const env = project();
+    writeFileSync(path.join(env.projectRoot, "pilot.lock.json"), '{"pilots":[]}');
+    const out: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string) => { out.push(String(chunk)); return true; }) as typeof process.stdout.write;
+    try {
+      runInit(env, parseArgs([]));
+    } finally {
+      process.stdout.write = write;
+    }
+    const printed = out.join("");
+    expect(printed).toContain("pilot install");
+    expect(printed).not.toContain("compile the first one");
   });
 });

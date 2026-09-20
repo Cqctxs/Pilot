@@ -54,13 +54,25 @@ export interface GenericQuery {
   limit?: number;
 }
 
-export interface CapabilityRecord {
+/**
+ * Record shapes for the capabilities installed here, filled in by `pilot types`.
+ *
+ * Empty by design: this package cannot know what interfaces a project has
+ * installed, but the project does. The generated declaration file augments this
+ * interface, and every capability id in it starts returning its real fields
+ * instead of `RawRecord`. Without that file nothing breaks — an unaugmented
+ * lookup falls through to the untyped overload, which is exactly today's
+ * behaviour.
+ */
+export interface CapabilityTypes {}
+
+export interface CapabilityRecord<T = RawRecord> {
   source: string;
-  values: RawRecord;
+  values: T;
 }
 
-export interface GenericSearchResult {
-  records: CapabilityRecord[];
+export interface GenericSearchResult<T = RawRecord> {
+  records: CapabilityRecord<T>[];
   sources: SourceResult[];
   fields: string[];
 }
@@ -80,13 +92,17 @@ export interface JobsCapability {
   targets(): CapabilityTarget[];
 }
 
-export interface GenericCapability {
-  search(...args: Array<string | GenericQuery>): Promise<GenericSearchResult>;
+export interface GenericCapability<T = RawRecord> {
+  search(...args: Array<string | GenericQuery>): Promise<GenericSearchResult<T>>;
   targets(): CapabilityTarget[];
 }
 
 export interface Pilot {
   capability(id: typeof JOBS_CAPABILITY | "jobs.search" | "jobs.board" | "jobs"): JobsCapability;
+  /** A capability `pilot types` has generated a shape for. */
+  capability<K extends Extract<keyof CapabilityTypes, string>>(
+    id: K,
+  ): GenericCapability<CapabilityTypes[K]>;
   capability(id: string): GenericCapability;
   store: PilotStore;
 }
