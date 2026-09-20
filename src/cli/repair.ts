@@ -75,6 +75,7 @@ export async function runRepair(env: PilotEnv, args: ParsedArgs): Promise<number
     baseSchema: capabilityDefinition?.schema,
     capabilitySchemaVersion: capabilityDefinition?.version,
     query: { keywords: flagString(args, "query") ?? "" },
+    headless: !args.flags.watch,
     env,
     onProgress: (message) => process.stderr.write(`  ${message}\n`),
   });

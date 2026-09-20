@@ -145,6 +145,22 @@ describe("reading data", () => {
     expect(pilots[0]!.fields).toContain("company");
   });
 
+  it("describes the developer-facing SDK contract without a generated doc file", async () => {
+    const result = await client.callTool({ name: "pilot_capabilities", arguments: {} });
+    const body = textOf(result);
+    expect(body).toContain('import { pilot } from "@pilot/sdk"');
+    expect(body).toContain('.capability("jobs.search")');
+    expect(body).toContain("jobs[].type:");
+    expect(body).toContain("raw employmentType is normalized");
+
+    const capabilities = structured(result).capabilities as Array<{
+      id: string;
+      sdk: { returns: string[] };
+    }>;
+    const jobs = capabilities.find((capability) => capability.id === JOBS_CAPABILITY);
+    expect(jobs?.sdk.returns).toContain("jobs[].location: string | null");
+  });
+
   it("reports which fields are available and how many sources provide them", async () => {
     const result = await client.callTool({ name: "pilot_fields", arguments: {} });
     const body = textOf(result);

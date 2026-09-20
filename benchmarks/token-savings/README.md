@@ -5,8 +5,8 @@ This benchmark asks Codex to build the same tiny job-search CLI twice:
 1. **Without Pilot:** only the local job-board URL and acceptance test exist.
    Codex must discover and implement the integration.
 2. **Warm Pilot:** the AI-generated `testboard` Pilot is already installed and
-   normal `pilot init` guidance and generated `PILOT.md` are present. Codex can program against
-   `jobs.search@1` instead of learning the website.
+   exposed through the MCP server configured by `pilot init`. Codex can query
+   the live `jobs.search@1` contract instead of learning the website.
 
 Both cases receive the exact prompt in `prompt.txt` and must pass the exact
 acceptance test in `acceptance.mjs`. The controlled board serves both HTML and a

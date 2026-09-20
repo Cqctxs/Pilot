@@ -17,7 +17,6 @@ import { PilotStore } from "../pilots/store.js";
 import { CapabilityRegistry } from "../capability/registry.js";
 import type { PilotEnv } from "../shared/env.js";
 import type { ParsedArgs } from "./args.js";
-import { writePilotDocs } from "./docs.js";
 
 const SERVER_NAME = "pilot";
 
@@ -40,27 +39,19 @@ no API. A **capability** is an interface (\`jobs.search\`); a **Pilot**
 implements it for one site (\`linkedin\`). Application code targets the
 capability, never a site.
 
-- \`PILOT.md\` — concise installed targets, exact SDK calls and return fields.
 - \`pilot_capabilities\` — the interfaces here, field by field. Read this before
-  writing code against a result; a field marked \`*\` is on every record.
+  writing code; it includes the SDK call and its normalized return shape.
 - \`pilot_list\` — which sites can be asked, and what each returns.
 - \`pilot_search\` — run a search now.
 - \`pilot_create\` — compile a new site, only when no Pilot covers it.
 
-Use those concise tools as the source of truth. Do not read Pilot's
-\`node_modules\` implementation to rediscover an interface unless a documented
-call actually fails.
+Use the MCP tools as the live source of truth. Do not inspect Pilot's
+\`node_modules\` implementation or generate a second documentation file to
+rediscover an interface unless an MCP-described call actually fails.
 
 Running a Pilot costs no model call and needs no API key. Prefer an existing
 Pilot over writing new extraction code, and prefer \`pilot_create\` over
 hand-rolling a scraper: the compiled script is versioned, shared, and repairable.
-
-\`\`\`ts
-import { pilot } from "@pilot/sdk";
-
-const jobs = pilot().capability("jobs.search");
-const { jobs: found, sources } = await jobs.search({ keywords: "software intern" });
-\`\`\`
 `;
 
 export function runInit(env: PilotEnv, args: ParsedArgs): number {
@@ -69,10 +60,21 @@ export function runInit(env: PilotEnv, args: ParsedArgs): number {
   const written: string[] = [];
   const skipped: string[] = [];
 
-  // Generated exclusively from installed manifests, so it is safe to replace
-  // and much cheaper for an agent to read than the package implementation.
-  const docsFile = writePilotDocs(env);
-  written.push(path.relative(root, docsFile) || docsFile);
+  // Say the directory, always, before writing anything into it. Every other
+  // command silently resolves a project root by walking up from the working
+  // directory, which is invisible and fine until the day it picks somewhere
+  // you did not mean — and then "nothing happened" is the only symptom.
+  process.stdout.write(`Setting up ${root}\n\n`);
+
+  // An empty folder is a project the moment `pilot init` is run in it. Writing
+  // the manifest is what makes that true for everything afterwards: without
+  // one, a later command run from a subdirectory walks straight past this
+  // folder and adopts whatever project is above it.
+  const manifest = path.join(root, "package.json");
+  if (!existsSync(manifest)) {
+    writeFileSync(manifest, `${JSON.stringify(packageManifest(root), null, 2)}\n`);
+    written.push("package.json (this folder is now a project)");
+  }
 
   const mcpFile = path.join(root, ".mcp.json");
   const existing = existsSync(mcpFile) ? readJson(mcpFile) : null;
@@ -116,6 +118,22 @@ export function runInit(env: PilotEnv, args: ParsedArgs): number {
   }
   process.stdout.write(reportState(env, root));
   return 0;
+}
+
+/**
+ * The smallest manifest that makes a directory a project.
+ *
+ * Deliberately minimal: this exists to anchor the project root, not to guess
+ * at someone's build. `npm init` afterwards fills in the rest without conflict.
+ */
+function packageManifest(root: string): Record<string, unknown> {
+  const name = path.basename(root).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-_.]+/, "");
+  return {
+    name: name || "pilot-project",
+    version: "1.0.0",
+    private: true,
+    type: "module",
+  };
 }
 
 /** Whether the Codex CLI is here at all, without caring which version. */

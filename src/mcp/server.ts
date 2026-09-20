@@ -68,6 +68,65 @@ function deriveId(url: string): string {
   return candidate.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
 
+type SdkContract = {
+  import: string;
+  example: string;
+  returns: string[];
+  notes: string[];
+};
+
+/**
+ * The capability schema is the compiler's raw extraction target. Application
+ * code needs the SDK contract as well: jobs, for example, normalizes the raw
+ * `employmentType` field into `job.type`. Keeping that mapping in the MCP
+ * response lets an agent write correct code without reading this package or a
+ * generated Markdown snapshot.
+ */
+function sdkContract(definition: CapabilityDefinition): SdkContract {
+  if (definition.id === JOBS_CAPABILITY) {
+    return {
+      import: 'import { pilot } from "@pilot/sdk";',
+      example:
+        'const { jobs, sources } = await pilot().capability("jobs.search")' +
+        '.search({ keywords: "software engineer", type: "internship", limit: 10 });',
+      returns: [
+        "jobs[].id: string",
+        "jobs[].source: string",
+        "jobs[].title: string",
+        "jobs[].company: string",
+        "jobs[].location: string | null",
+        "jobs[].url: string",
+        "jobs[].type: internship | full-time | part-time | contract | temporary | unknown",
+        "jobs[].typeBasis: source | title | unknown",
+        "jobs[].postedAt: string | null",
+        "jobs[].attributes: object",
+        "sources[]: per-Pilot status",
+      ],
+      notes: [
+        "Use job.type in application code; raw employmentType is normalized into it.",
+        "Running search executes installed scripts and makes no compiler-model call.",
+      ],
+    };
+  }
+
+  const short = definition.id.replace(/@\d+$/, "");
+  return {
+    import: 'import { pilot } from "@pilot/sdk";',
+    example:
+      `const { records, sources } = await pilot().capability("${short}")` +
+      ".search({ params: {}, limit: 10 });",
+    returns: [
+      "records[].source: string",
+      `records[].values: { ${definition.schema.fields.map((field) => field.name).join(", ")} }`,
+      "sources[]: per-Pilot status",
+    ],
+    notes: [
+      "Pass capability-specific inputs through params.",
+      "Run pilot types to generate TypeScript declarations for installed capabilities.",
+    ],
+  };
+}
+
 export function buildServer(env: PilotEnv): McpServer {
   const server = new McpServer(
     { name: "pilot", version: "0.1.0" },
@@ -154,6 +213,7 @@ export function buildServer(env: PilotEnv): McpServer {
                 definition.id,
             )
             .map((item) => item.pilot.id),
+          sdk: sdkContract(definition),
         }));
         if (capabilities.length === 0) {
           return text(
@@ -169,7 +229,13 @@ export function buildServer(env: PilotEnv): McpServer {
             capability.implementedBy.length > 0
               ? capability.implementedBy.join(", ")
               : "nothing yet — compile one with pilot_create";
-          return `${capability.id}  implemented by: ${implementers}\n${fields}`;
+          const returns = capability.sdk.returns.map((field) => `    ${field}`).join("\n");
+          const notes = capability.sdk.notes.map((note) => `    ${note}`).join("\n");
+          return (
+            `${capability.id}  implemented by: ${implementers}\n${fields}\n` +
+            `  SDK:\n    ${capability.sdk.import}\n    ${capability.sdk.example}\n` +
+            `  Returns:\n${returns}\n  Notes:\n${notes}`
+          );
         });
         return text(
           `${lines.join("\n\n")}\n\n* = always present. Others may be missing on any record.`,

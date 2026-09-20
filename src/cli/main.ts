@@ -11,7 +11,6 @@ import { runCapabilities } from "./capabilities.js";
 import { runFields } from "./fields.js";
 import { runInit } from "./init.js";
 import { runTypes } from "./types.js";
-import { runDocs } from "./docs.js";
 
 const HELP = `Pilot — compile any website into a reusable data API.
 
@@ -52,6 +51,7 @@ LOOK
 KEEP WORKING
 
   pilot repair <pilot>          Recompile one whose site changed
+    --watch                     Show the browser while it rediscovers the page
   pilot update [pilots...]      Install newer published versions
   pilot rm <pilot|capability>   Remove it locally
   pilot enable|disable <pilot>  Include or exclude from unqualified searches
@@ -61,7 +61,6 @@ KEEP WORKING
                                 (.mcp.json + CLAUDE.md/AGENTS.md; --codex for Codex)
   pilot types                   Generate TypeScript for the installed
                                 capabilities, so wrong field names fail to compile
-  pilot docs                    Generate a concise PILOT.md for agents and humans
   pilot mcp                     Serve Pilot over MCP to Claude Code or Codex
   pilot help --all              The rest of the surface
 
@@ -81,7 +80,6 @@ const HELP_ALL = `The rest of the surface — everything the short help leaves o
     pilot create --from-skill <ref>   Compile starting from published notes
     pilot search --type <t> --filter <f=v> --param <f=v> --strict-location
     pilot types [--out <file>]    TypeScript for the installed capabilities
-    pilot docs [--out <file>]     Compact signatures, targets and fields
     pilot init [--force] [--codex]  Set this project up for a coding agent
     pilot testboard [--layout a|b] [--hostile]  Local board used by the tests
     pilot promptlab [--runs n]    A/B the compiler's system prompts
@@ -103,7 +101,6 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
   list: ["json", "remote"],
   init: ["force", "codex"],
   types: ["out", "dry-run"],
-  docs: ["out", "dry-run"],
   ls: ["json", "remote"],
   show: ["json"],
   rm: ["json", "force"],
@@ -114,7 +111,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     "capability", "keywords", "location", "type", "limit", "filter", "param",
     "strict-location", "json", "no-report",
   ],
-  repair: ["query", "failure"],
+  repair: ["query", "failure", "watch"],
   publish: [],
   install: ["force"],
   outdated: ["json"],
@@ -152,8 +149,6 @@ async function main(): Promise<number> {
     }
     case "types":
       return runTypes(env, args);
-    case "docs":
-      return runDocs(env, args);
     case "init":
       return runInit(env, args);
     case "ls":

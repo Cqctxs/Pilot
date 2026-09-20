@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 function nearestPackageRoot(start: string): string | null {
   let dir = path.resolve(start);
@@ -22,15 +21,23 @@ function nearestPackageRoot(start: string): string | null {
  * with PILOT_PILOTS_DIR and friends set by hand. The caller's project is the
  * right answer, and inside this repo the two are the same directory anyway.
  *
- * Falling back to the module's own root keeps the unusual cases working: a
- * caller running from a directory with no package.json above it at all.
+ * With nothing above the caller at all, the answer is the caller's own
+ * directory. This used to fall back to the module's own root, which quietly
+ * made an empty folder an alias for wherever Pilot happened to be installed:
+ * `pilot init` in a new directory reported success having written `.mcp.json`
+ * and `CLAUDE.md` into the Pilot clone, and `pilot install` put that folder's
+ * Pilots there too. Nothing appeared where the person was standing and nothing
+ * said why. A directory with no project markers is its own project — which is
+ * wrong only in the harmless direction, since everything it creates is in
+ * front of them.
  */
 export function findProjectRoot(start = process.cwd()): string {
-  const fromCaller = nearestPackageRoot(start);
-  if (fromCaller) return fromCaller;
-  const fromModule = nearestPackageRoot(fileURLToPath(new URL(".", import.meta.url)));
-  if (fromModule) return fromModule;
-  throw new Error("Could not find project root (package.json)");
+  return nearestPackageRoot(start) ?? path.resolve(start);
+}
+
+/** Whether a real project marker was found, as opposed to defaulting to `start`. */
+export function hasProjectRoot(start = process.cwd()): boolean {
+  return nearestPackageRoot(start) !== null;
 }
 
 function envString(name: string, fallback: string): string {
