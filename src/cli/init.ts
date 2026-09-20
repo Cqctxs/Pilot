@@ -49,7 +49,7 @@ Pilot over writing new extraction code, and prefer \`pilot_create\` over
 hand-rolling a scraper: the compiled script is versioned, shared, and repairable.
 
 \`\`\`ts
-import { pilot } from "pilot";
+import { pilot } from "@pilot/sdk";
 
 const jobs = pilot().capability("jobs.search");
 const { jobs: found, sources } = await jobs.search({ keywords: "software intern" });

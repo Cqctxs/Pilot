@@ -61,7 +61,7 @@ KEEP WORKING
   pilot types                   Generate TypeScript for the installed
                                 capabilities, so wrong field names fail to compile
   pilot mcp                     Serve Pilot over MCP to Claude Code or Codex
-  pilot help --all              Everything, including the older spellings
+  pilot help --all              The rest of the surface
 
 Examples:
   pilot create "https://www.talent.com/jobs?k=software+intern&l=Boston"
@@ -69,20 +69,7 @@ Examples:
   pilot create hotels.search --describe "hotels I could book, with nightly price"
 `;
 
-const HELP_ALL = `Every command, including spellings kept for compatibility.
-
-  Same thing, older name:
-    pilot capabilities            = pilot ls
-    pilot capabilities show <id>  = pilot show <id>
-    pilot capabilities add <id>   = pilot create <id>
-    pilot capabilities publish    = pilot publish <id>
-    pilot capabilities install    = pilot install <id>
-    pilot capabilities rm <id>    = pilot rm <id>
-    pilot list                    = pilot ls
-    pilot uninstall <pilots...>   = pilot rm
-    pilot fields [pilots...]      = pilot show
-    pilot registry list           = pilot ls --remote
-    pilot registry health [id]    = pilot health
+const HELP_ALL = `The rest of the surface — everything the short help leaves out.
 
   Not in the short help:
     pilot registry search <text>  Find a Pilot by site, capability, or field
@@ -91,6 +78,8 @@ const HELP_ALL = `Every command, including spellings kept for compatibility.
     pilot outdated [pilots...]    Compare installed versions with the registry
     pilot create --from-skill <ref>   Compile starting from published notes
     pilot search --type <t> --filter <f=v> --param <f=v> --strict-location
+    pilot types [--out <file>]    TypeScript for the installed capabilities
+    pilot init [--force]          Set this project up for a coding agent
     pilot testboard [--layout a|b] [--hostile]  Local board used by the tests
     pilot promptlab [--runs n]    A/B the compiler's system prompts
 `;
@@ -115,8 +104,6 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
   show: ["json"],
   rm: ["json", "force"],
   health: ["json", "limit"],
-  capabilities: ["fields", "from", "describe", "url", "dry-run", "force", "json"],
-  fields: ["json"],
   enable: [],
   disable: [],
   search: [
@@ -128,7 +115,6 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
   install: ["force"],
   outdated: ["json"],
   update: ["json"],
-  uninstall: ["json"],
   lock: ["json"],
   registry: ["capability", "limit", "json"],
   promptlab: ["runs"],
@@ -201,10 +187,6 @@ async function main(): Promise<number> {
       const { runRegistry } = await import("./registry.js");
       return runRegistry(env, asRegistryArgs(args, "health"));
     }
-    case "capabilities":
-      return runCapabilities(env, args);
-    case "fields":
-      return runFields(env, args);
     case "enable":
     case "disable": {
       const id = args.positional[0];
@@ -247,10 +229,6 @@ async function main(): Promise<number> {
     case "update": {
       const { runUpdate } = await import("./packages.js");
       return runUpdate(env, args);
-    }
-    case "uninstall": {
-      const { runUninstall } = await import("./packages.js");
-      return runUninstall(env, args);
     }
     case "lock": {
       const { runLock } = await import("./packages.js");

@@ -14,51 +14,6 @@ export const CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9.-]*@[1-9]\d*$/;
 /** `jobs.search` — the same id with the major version left off. */
 export const CAPABILITY_NAME_PATTERN = /^[a-z][a-z0-9.-]*$/;
 
-/**
- * Ids that were renamed, and the ids they became.
- *
- * A capability id is written into every Pilot compiled against it and into
- * every registry document, so a rename cannot be a find-and-replace — artifacts
- * published before it, and Pilots on machines that have not updated, still say
- * the old name. They keep resolving. The entry is cheap and permanent; the
- * alternative is a Pilot that cannot find its own interface.
- */
-const RENAMED: Readonly<Record<string, string>> = {
-  "jobs.board@1": "jobs.search@1",
-  "jobs.board": "jobs.search@1",
-  jobs: "jobs.search@1",
-};
-
-/**
- * The current name for an id, without touching the disk.
- *
- * Use this on every comparison between a capability someone asked for and the
- * one recorded in a Pilot: the Pilot may have been compiled, published or
- * installed before a rename, and two spellings of one interface must not read
- * as two interfaces. It deliberately does not expand a bare name — `@1` and
- * `@2` really are different contracts, and guessing between them is the kind
- * of silent mismatch this function exists to prevent.
- */
-export function canonicalCapability(id: string | null | undefined): string | null {
-  if (!id) return null;
-  return RENAMED[id] ?? id;
-}
-
-/**
- * Every id that means this capability, current name first.
- *
- * A registry document is written once and read forever, so a Pilot published
- * as `jobs.board@1` still says so long after the interface was renamed. Queries
- * ask for all of them; only new writes use the current name. This is also why
- * renames are cheap here but not free — the list only ever grows.
- */
-export function capabilityAliases(id: string): string[] {
-  const old = Object.entries(RENAMED)
-    .filter(([from, to]) => to === id && from !== id)
-    .map(([from]) => from);
-  return [id, ...old];
-}
-
 export const capabilityDefinitionSchema = z.strictObject({
   capabilityFormatVersion: z.literal(1),
   id: z.string().regex(CAPABILITY_ID_PATTERN),
@@ -133,8 +88,6 @@ export class CapabilityRegistry {
    * be a guess.
    */
   resolve(id: string): string {
-    const renamed = RENAMED[id];
-    if (renamed) return renamed;
     if (CAPABILITY_ID_PATTERN.test(id)) return id;
     if (!CAPABILITY_NAME_PATTERN.test(id)) {
       throw pilotError(
@@ -259,7 +212,7 @@ export class CapabilityRegistry {
     >();
 
     for (const pilot of pilots) {
-      if (canonicalCapability(pilot.capability) !== canonicalCapability(id)) continue;
+      if (pilot.capability !== id) continue;
       for (const field of pilot.schemaExtensions) {
         if (sharedNames.has(field.name)) continue;
         let current = candidates.get(field.name);
@@ -312,24 +265,8 @@ export class CapabilityRegistry {
     return { definition: next, promoted, blocked };
   }
 
-  /**
-   * Where this capability lives, current name first.
-   *
-   * A rename has to work on machines that installed the definition under its
-   * old name — they have `jobs.board@1.json` on disk and nothing else, and
-   * resolving only forwards would tell them their own interface is missing. So
-   * reads accept whichever alias is actually present, and writes always land on
-   * the current name, which migrates a machine the first time it saves.
-   */
   private fileFor(id: string): string {
-    const canonical = this.resolve(id);
-    const current = path.join(this.env.capabilitiesDir, `${canonical}.json`);
-    if (existsSync(current)) return current;
-    for (const alias of capabilityAliases(canonical).slice(1)) {
-      const older = path.join(this.env.capabilitiesDir, `${alias}.json`);
-      if (existsSync(older)) return older;
-    }
-    return current;
+    return path.join(this.env.capabilitiesDir, `${this.resolve(id)}.json`);
   }
 
   private readFile(file: string): CapabilityDefinition {

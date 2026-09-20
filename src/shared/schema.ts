@@ -33,8 +33,19 @@ export interface SchemaExtensionResult {
   problems: string[];
 }
 
-/** A single extracted record, before capability-level normalization. */
-export type RawRecord = Record<string, string | null>;
+/**
+ * A single extracted record.
+ *
+ * Extraction yields strings — it reads text off a page — but the schema
+ * declares what each field *is*, and the runtime coerces to that before any
+ * caller sees the record. Without that step a field declared `number` arrives
+ * as `"133"`, and the first thing anyone does with a set of prices is compare
+ * them: `"143" < "9"` is true, so the cheapest result loses and the answer is
+ * wrong with no error anywhere. The declared type is the whole point of
+ * declaring it.
+ */
+export type RawValue = string | number | boolean | null;
+export type RawRecord = Record<string, RawValue>;
 
 export function parseFieldList(input: string): DataSchema {
   const fields = input
@@ -136,4 +147,17 @@ export function fieldsWithoutValues(records: RawRecord[], fields: FieldSpec[]): 
         ),
     )
     .map((field) => field.name);
+}
+
+/**
+ * The text of a value, for code that reads a record as prose.
+ *
+ * Records carry declared types now, so a field may already be a number or a
+ * boolean by the time anything reads it. Anywhere that wants to trim it, match
+ * it or display it wants its text — and wants that to be explicit rather than
+ * an implicit coercion that turns `null` into `"null"`.
+ */
+export function asText(value: RawValue | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  return String(value);
 }

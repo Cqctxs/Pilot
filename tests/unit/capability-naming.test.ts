@@ -6,18 +6,14 @@
  * recorded `capabilitySchemaVersion` refers to — so it stays on disk and
  * becomes optional at the keyboard. The `board` was simply the wrong word for
  * an interface whose sibling capabilities are named for verbs, so it was
- * renamed, and the old name has to keep working forever: it is written into
- * every Pilot and registry document published before the rename.
+ * renamed. The old name is simply gone: it lived for one release, nothing
+ * outside this repo depends on it, and an interface with two names has none.
  */
 import { describe, expect, it } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  CapabilityRegistry,
-  canonicalCapability,
-  capabilityAliases,
-} from "../../src/capability/registry.js";
+import { CapabilityRegistry } from "../../src/capability/registry.js";
 import { JOBS_CAPABILITY } from "../../src/capability/jobs.js";
 
 function registryWith(ids: string[]): CapabilityRegistry {
@@ -62,22 +58,23 @@ describe("capability naming", () => {
     expect(registry.resolve("hotels.search@2")).toBe("hotels.search@2");
   });
 
-  it("still answers to the pre-rename id, with or without its version", () => {
+  /**
+   * One interface, one name.
+   *
+   * `jobs.board@1` was aliased to `jobs.search@1` for one release, and the
+   * aliases cost more than the migration they bought: the docs said
+   * `jobs.search`, the MCP tool reported `jobs.board@1`, the SDK constant said
+   * `jobs.search@1`, and `capability()` took four spellings. Someone comparing
+   * the docs to the tool output concluded they disagreed — correctly. The old
+   * name is now simply unknown, and says so.
+   */
+  it("does not answer to the pre-rename id", () => {
     const registry = registryWith(["jobs.search@1"]);
-    expect(registry.resolve("jobs.board@1")).toBe("jobs.search@1");
-    expect(registry.resolve("jobs.board")).toBe("jobs.search@1");
-    expect(registry.resolve("jobs")).toBe("jobs.search@1");
+    expect(registry.resolve("jobs.board@1")).toBe("jobs.board@1");
+    expect(registry.find("jobs.board@1")).toBeNull();
+    // A bare word with no dot is not a capability id at all.
+    expect(() => registry.resolve("jobs")).not.toThrow();
+    expect(registry.find("jobs.search@1")).not.toBeNull();
   });
 
-  it("canonicalizes without touching the disk, and without merging majors", () => {
-    expect(canonicalCapability("jobs.board@1")).toBe("jobs.search@1");
-    expect(canonicalCapability("hotels.search@2")).toBe("hotels.search@2");
-    expect(canonicalCapability(null)).toBeNull();
-  });
-
-  it("lists every id a published document might carry", () => {
-    expect(capabilityAliases("jobs.search@1")).toContain("jobs.board@1");
-    expect(capabilityAliases("jobs.search@1")[0]).toBe("jobs.search@1");
-    expect(capabilityAliases("hotels.search@1")).toEqual(["hotels.search@1"]);
-  });
 });

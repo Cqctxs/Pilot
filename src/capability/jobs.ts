@@ -6,7 +6,7 @@
  * Adding a second capability means adding a file like this one; nothing in
  * `compiler/` or `runtime/` needs to know it exists.
  */
-import type { DataSchema, FieldSpec, RawRecord } from "../shared/schema.js";
+import { asText, type DataSchema, type FieldSpec, type RawRecord } from "../shared/schema.js";
 
 export const JOBS_CAPABILITY = "jobs.search@1" as const;
 
@@ -150,20 +150,20 @@ export function toJob(
   record: RawRecord,
   schema: DataSchema = JOBS_SCHEMA,
 ): Job | null {
-  const title = record.title?.trim();
-  const url = record.url?.trim();
+  const title = asText(record.title)?.trim();
+  const url = asText(record.url)?.trim();
   if (!title || !url) return null;
-  const { type, typeBasis } = classifyEmploymentType(title, record.employmentType ?? null);
+  const { type, typeBasis } = classifyEmploymentType(title, asText(record.employmentType));
   return {
     id: stableId(source, url),
     source,
     title: normalizeDisplay(title),
-    company: normalizeDisplay(record.company ?? source),
-    location: record.location ? normalizeDisplay(record.location) : null,
+    company: normalizeDisplay(asText(record.company) ?? source),
+    location: record.location ? normalizeDisplay(String(record.location)) : null,
     url,
     type,
     typeBasis,
-    postedAt: record.postedAt ? normalizeDisplay(record.postedAt) : null,
+    postedAt: record.postedAt ? normalizeDisplay(String(record.postedAt)) : null,
     attributes: collectAttributes(record, schema),
   };
 }
@@ -175,7 +175,7 @@ function collectAttributes(
   const attributes: Record<string, JobAttributeValue> = {};
   for (const field of schema.fields) {
     if (CORE_FIELDS.has(field.name)) continue;
-    attributes[field.name] = coerceAttribute(record[field.name] ?? null, field);
+    attributes[field.name] = coerceAttribute(asText(record[field.name]), field);
   }
   return attributes;
 }

@@ -1,7 +1,7 @@
 import { compile } from "../compiler/index.js";
 import { PilotStore } from "../pilots/store.js";
 import { JOBS_CAPABILITY, JOBS_SCHEMA } from "../capability/jobs.js";
-import { CapabilityRegistry, canonicalCapability } from "../capability/registry.js";
+import { CapabilityRegistry } from "../capability/registry.js";
 import { parseFieldList, type DataSchema } from "../shared/schema.js";
 import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import { toPilotError } from "../shared/errors.js";
@@ -80,7 +80,7 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     const local = store.all().find(
       (item) =>
         item.pilot.id === id &&
-        canonicalCapability(item.pilot.capability) === capability &&
+        item.pilot.capability === capability &&
         new URL(item.pilot.target.url).hostname.replace(/^www\./, "") ===
           new URL(url).hostname.replace(/^www\./, ""),
     );

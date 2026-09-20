@@ -68,6 +68,8 @@ export async function validateScript(input: {
   pilotId: string;
   targetUrl: string;
   query: ScriptQuery;
+  /** Re-run with a different query to prove the script reads it. Default true. */
+  probe?: boolean;
   timeoutMs?: number;
   onLog?: (message: string) => void;
 }): Promise<ValidationReport> {
@@ -108,10 +110,119 @@ export async function validateScript(input: {
       return { ok: false, records: [], problems: [`${error.code}: ${error.message}`] };
     }
 
-    return { ...judge(records, input.schema, input.code), records };
+    const report = { ...judge(records, input.schema, input.code), records };
+    if (!report.ok || input.probe === false) return report;
+
+    // Everything above proves the script reads the site. Nothing above proves
+    // it reads the *query* — so ask it a second, different question.
+    const probe = probeQuery(input.query);
+    if (!probe) return report;
+    try {
+      const again = await runScript(candidate, dir, probe, {
+        timeoutMs: input.timeoutMs,
+        onLog: input.onLog,
+      });
+      const problem = judgeProbe(records, again, input.query, probe);
+      if (problem) {
+        report.ok = false;
+        report.problems.push(problem);
+      }
+    } catch {
+      // A probe that throws says nothing either way — a site may reject an
+      // unfamiliar query, and failing the compile for that would be worse than
+      // the gap this check closes.
+    }
+    return report;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * A different question, built from the one the compiler was given.
+ *
+ * Returns null when there is nothing to vary — an empty query cannot be
+ * perturbed, and a script for a site with no search is legitimately constant.
+ */
+export function probeQuery(query: ScriptQuery): ScriptQuery | null {
+  const changed: ScriptQuery = { ...query };
+  let varied = false;
+  for (const [key, value] of Object.entries(query)) {
+    if (typeof value !== "string" || value.trim() === "") continue;
+    // Deliberately unrelated to the original. A near-miss ("intern" →
+    // "interns") can legitimately return the same page of results; something
+    // entirely different cannot, unless the query was never used.
+    changed[key as keyof ScriptQuery] = varyValue(key, value);
+    varied = true;
+  }
+  return varied ? changed : null;
+}
+
+/**
+ * Values chosen to be real but unrelated, so a site that honours the query
+ * answers differently and a site that ignores it cannot accidentally match.
+ */
+const PROBE_VALUES: Record<string, string> = {
+  keywords: "veterinary nurse",
+  location: "Reykjavik",
+  origin: "OSL",
+  destination: "AKL",
+};
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * A different value of the same kind.
+ *
+ * Kind matters: a date replaced with nonsense makes the site reject the request,
+ * and a request that errors proves nothing about whether the script read it. A
+ * date five weeks later is still a date, so the site answers, and a script that
+ * ignored it answers identically.
+ */
+function varyValue(key: string, value: string): string {
+  if (ISO_DATE.test(value)) {
+    const shifted = new Date(`${value}T00:00:00Z`);
+    shifted.setUTCDate(shifted.getUTCDate() + 35);
+    return shifted.toISOString().slice(0, 10);
+  }
+  return PROBE_VALUES[key] ?? `${value.split("").reverse().join("")}x`;
+}
+
+/**
+ * Did the script actually use its query?
+ *
+ * The failure this catches: a compiler that inlines the sample values it was
+ * given — a flights script with `YTO-YVR/2026-10-20` baked into the URL — then
+ * passes validation because validation re-runs the very query it hardcoded.
+ * Twenty real records come back, every field populated, and the Pilot returns
+ * Toronto→Vancouver for every question anyone ever asks it. Confidently wrong,
+ * and nothing downstream can tell.
+ *
+ * Identical output for an unrelated query is the signature. Zero records for
+ * the probe is a *pass*: it means the site was asked and had nothing.
+ */
+export function judgeProbe(
+  first: RawRecord[],
+  second: RawRecord[],
+  query: ScriptQuery,
+  probe: ScriptQuery,
+): string | null {
+  if (first.length === 0) return null;
+  if (fingerprint(first) !== fingerprint(second)) return null;
+  const varied = Object.keys(probe).filter(
+    (key) => probe[key as keyof ScriptQuery] !== query[key as keyof ScriptQuery],
+  );
+  return (
+    `The script returned identical records for two different queries ` +
+    `(${varied.map((key) => `${key}: ${JSON.stringify(query[key as keyof ScriptQuery])} → ${JSON.stringify(probe[key as keyof ScriptQuery])}`).join(", ")}). ` +
+    `It is not reading the query — most likely the sample values are written into ` +
+    `the URL or the selectors. Build the request from the \`query\` argument so a ` +
+    `different question gives a different answer.`
+  );
+}
+
+function fingerprint(records: RawRecord[]): string {
+  return JSON.stringify(records.map((record) => Object.entries(record).sort()));
 }
 
 /**
@@ -173,7 +284,7 @@ export function judge(
       );
     }
     if (field.type === "url") {
-      const bad = records.find((record) => record[field.name] && !isUrlish(record[field.name]!));
+      const bad = records.find((record) => record[field.name] && !isUrlish(String(record[field.name])));
       if (bad) {
         problems.push(`Field "${field.name}" is not a URL: ${JSON.stringify(bad[field.name])}`);
       }
@@ -186,7 +297,7 @@ export function judge(
       }
     } else if (field.type === "boolean") {
       const bad = records.find(
-        (record) => record[field.name] && !/^(true|false|yes|no|1|0)$/i.test(record[field.name]!),
+        (record) => record[field.name] && !/^(true|false|yes|no|1|0)$/i.test(String(record[field.name])),
       );
       if (bad) {
         problems.push(`Field "${field.name}" is not a boolean: ${JSON.stringify(bad[field.name])}`);

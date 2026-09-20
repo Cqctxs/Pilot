@@ -17,7 +17,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { JOBS_CAPABILITY, JOBS_SCHEMA, type EmploymentType, type JobQuery } from "../capability/jobs.js";
 import { describeFields } from "../capability/fields.js";
-import { CapabilityRegistry, canonicalCapability, type CapabilityDefinition } from "../capability/registry.js";
+import { CapabilityRegistry, type CapabilityDefinition } from "../capability/registry.js";
 import { PilotStore } from "../pilots/store.js";
 import { Registry, withRegistry } from "../registry/client.js";
 import { executePilot } from "../runtime/execute.js";
@@ -143,8 +143,8 @@ export function buildServer(env: PilotEnv): McpServer {
           implementedBy: pilots
             .filter(
               (item) =>
-                canonicalCapability(item.pilot.capability) ===
-                canonicalCapability(definition.id),
+                item.pilot.capability ===
+                definition.id,
             )
             .map((item) => item.pilot.id),
         }));
@@ -293,24 +293,109 @@ export function buildServer(env: PilotEnv): McpServer {
       description:
         "Execute one Pilot and return its raw extracted records. Use this for Pilots that " +
         "are not job boards — anything compiled with custom fields. For job boards prefer " +
-        "pilot_search, which normalizes and merges across sources.",
+        "pilot_search, which normalizes and merges across sources.\n\n" +
+        "Non-job capabilities take their own inputs — origin, destination, checkIn — " +
+        "through `params`. Read pilot_inspect first to see which ones this Pilot " +
+        "declares; keywords and location are simply the two that job boards use.",
       inputSchema: {
         id: z.string().describe("Pilot id, as shown by pilot_list"),
         keywords: z.string().optional().describe("Passed into the site's own search, if it has one"),
         location: z.string().optional(),
         limit: z.number().int().positive().optional(),
+        params: z
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+          .optional()
+          .describe(
+            "Any other inputs the Pilot's capability declares, e.g. " +
+              '{ "origin": "YYZ", "destination": "YUL", "departureDate": "2026-11-02" }',
+          ),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ id, keywords, location, limit }) => {
+    async ({ id, keywords, location, limit, params }) => {
       try {
         const loaded = new PilotStore(env).get(id);
+        const extra = Object.fromEntries(
+          Object.entries(params ?? {}).map(([key, value]) => [
+            key,
+            typeof value === "boolean" ? String(value) : value,
+          ]),
+        );
         const records = await executePilot(loaded, {
-          query: { keywords: keywords ?? "", location: location ?? "", limit: limit ?? null },
+          query: {
+            ...extra,
+            keywords: keywords ?? "",
+            location: location ?? "",
+            limit: limit ?? null,
+          },
         });
         return text(
           `${records.length} record(s) from ${id}\n\n${JSON.stringify(records, null, 2)}`,
           { records, fields: loaded.pilot.schema.fields.map((field) => field.name) },
+        );
+      } catch (cause) {
+        return failure(cause);
+      }
+    },
+  );
+
+  server.registerTool(
+    "pilot_inspect",
+    {
+      title: "Read a compiled Pilot",
+      description:
+        "Return one Pilot's compiled script, the query keys it actually reads, its " +
+        "schema and a sample of what it last returned. This is how you tell whether a " +
+        "Pilot is broken or simply being asked the wrong question — and whether it is " +
+        "parameterized at all, or has its inputs written into the URL. Read this " +
+        "before choosing between pilot_repair and recompiling.",
+      inputSchema: {
+        id: z.string().describe("Pilot id, as shown by pilot_list"),
+        source: z
+          .boolean()
+          .optional()
+          .describe("Include the full script. Default true; set false for just the summary."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ id, source }) => {
+      try {
+        const store = new PilotStore(env);
+        const loaded = store.get(id);
+        const script = store.readScript(id);
+        const sample = store.samples().get(id) ?? [];
+
+        // Which query keys the script mentions at all. A Pilot that never names
+        // one is returning the same thing regardless of what it is asked, which
+        // is exactly the failure that survives every other check.
+        const reads = [...new Set(
+          [...script.matchAll(/query\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"']+)["']\s*\])/g)].map(
+            (match) => match[1] ?? match[2]!,
+          ),
+        )];
+
+        const summary =
+          `${loaded.pilot.id}@${loaded.pilot.version} — ${loaded.pilot.target.name}\n` +
+          `  target:     ${loaded.pilot.target.url}\n` +
+          `  capability: ${loaded.pilot.capability ?? "ad-hoc"}\n` +
+          `  transport:  ${loaded.pilot.artifact.needsBrowser ? "browser" : "http"}\n` +
+          `  fields:     ${loaded.pilot.schema.fields.map((field) => field.name).join(", ")}\n` +
+          `  reads query: ${reads.length > 0 ? reads.join(", ") : "NOTHING — it ignores its query and will return the same records for every request"}\n` +
+          `  compiled:   ${loaded.pilot.createdAt}, ${loaded.pilot.evidence.recordCount} records at the time\n` +
+          `  directory:  ${loaded.dir}\n`;
+
+        return text(
+          summary +
+            (sample.length > 0
+              ? `\nLast sample (${sample.length}):\n${JSON.stringify(sample.slice(0, 3), null, 2)}\n`
+              : "") +
+            (source === false ? "" : `\nScript:\n${script}\n`),
+          {
+            pilot: loaded.pilot,
+            readsQueryKeys: reads,
+            sample: sample.slice(0, 3),
+            script: source === false ? null : script,
+          },
         );
       } catch (cause) {
         return failure(cause);
@@ -402,7 +487,7 @@ export function buildServer(env: PilotEnv): McpServer {
           const local = store.all().find(
             (item) =>
               item.pilot.id === pilotId &&
-              canonicalCapability(item.pilot.capability) === resolvedCapability &&
+              item.pilot.capability === resolvedCapability &&
               new URL(item.pilot.target.url).hostname.replace(/^www\./, "") ===
                 new URL(url).hostname.replace(/^www\./, ""),
           );

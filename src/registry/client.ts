@@ -24,7 +24,7 @@ import {
   type HealthSummary,
   type RegistryEntry,
 } from "./types.js";
-import { capabilityAliases, type CapabilityDefinition } from "../capability/registry.js";
+import type { CapabilityDefinition } from "../capability/registry.js";
 import { compareVersions } from "../shared/version.js";
 
 const ENTRIES = "pilots";
@@ -254,7 +254,7 @@ export class Registry {
 
   /** Newest version of every published Pilot. */
   async list(capability?: string | null): Promise<RegistryEntry[]> {
-    const match = capability ? { capability: { $in: capabilityAliases(capability) } } : {};
+    const match = capability ? { capability } : {};
     const found = (await this.entries().find(match).toArray()).map((item) =>
       registryEntrySchema.parse(item),
     );
@@ -275,7 +275,7 @@ export class Registry {
    */
   async compatible(url: string, capability: string): Promise<RegistryEntry[]> {
     const host = hostOf(url);
-    const found = (await this.entries().find({ host, capability: { $in: capabilityAliases(capability) } }).toArray()).map((item) =>
+    const found = (await this.entries().find({ host, capability }).toArray()).map((item) =>
       registryEntrySchema.parse(item),
     );
     const latest = new Map<string, RegistryEntry>();
@@ -302,7 +302,7 @@ export class Registry {
   async search(query: string, options: SearchOptions = {}): Promise<RegistryEntry[]> {
     const limit = options.limit ?? 20;
     const capability = options.capability
-      ? { capability: { $in: capabilityAliases(options.capability) } }
+      ? { capability: options.capability }
       : {};
 
     try {

@@ -1,5 +1,5 @@
 {
-  "name": "pilot",
+  "name": "@pilot/sdk",
   "version": "0.1.0",
   "private": true,
   "description": "Compile any website into a reusable data API",

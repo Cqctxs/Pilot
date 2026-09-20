@@ -8,7 +8,7 @@
  * column produces data no caller can parse. Comparing the shape of the values
  * each Pilot actually returned is the cheapest evidence that they agree.
  */
-import type { RawRecord } from "../shared/schema.js";
+import { asText, type RawRecord } from "../shared/schema.js";
 
 export type ValueShape =
   | "empty"
@@ -67,5 +67,5 @@ export function fieldShape(
   samples: readonly RawRecord[],
   field: string,
 ): ValueShape | null {
-  return dominantShape(samples.map((record) => record[field] ?? null));
+  return dominantShape(samples.map((record) => asText(record[field])));
 }

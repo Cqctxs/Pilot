@@ -16,11 +16,7 @@
  */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import {
-  CapabilityRegistry,
-  canonicalCapability,
-  type CapabilityDefinition,
-} from "../capability/registry.js";
+import { CapabilityRegistry, type CapabilityDefinition } from "../capability/registry.js";
 import { JOBS_CAPABILITY } from "../capability/jobs.js";
 import type { FieldSpec } from "../shared/schema.js";
 import type { PilotEnv } from "../shared/env.js";
@@ -80,7 +76,7 @@ export function runTypes(env: PilotEnv, args: ParsedArgs): number {
     // already matches the hand-written overload above it, which returns the
     // typed jobs client. Mapping it here would offer a worse type for the same
     // call. Its interface is still emitted, since it documents the contract.
-    .filter((definition) => canonicalCapability(definition.id) !== JOBS_CAPABILITY)
+    .filter((definition) => definition.id !== JOBS_CAPABILITY)
     .flatMap((definition) => {
       const short = definition.id.split("@")[0]!;
       const name = interfaceName(definition.id);
@@ -91,7 +87,7 @@ export function runTypes(env: PilotEnv, args: ParsedArgs): number {
   // The jobs capability already has a hand-written client with its own result
   // shape, so mapping it here would replace a better type with a worse one.
   const jobsNote = definitions.some(
-    (definition) => canonicalCapability(definition.id) === JOBS_CAPABILITY,
+    (definition) => definition.id === JOBS_CAPABILITY,
   )
     ? `\n// ${JOBS_CAPABILITY} is deliberately absent: pilot().capability("jobs.search")\n` +
       `// already returns the typed jobs client, which knows more than this file could.\n`
@@ -102,7 +98,7 @@ export function runTypes(env: PilotEnv, args: ParsedArgs): number {
     `// capability. Checking it in is reasonable — it is a description of the\n` +
     `// interfaces this project is written against.\n\n` +
     `${interfaces}\n\n` +
-    `declare module "pilot" {\n` +
+    `declare module "@pilot/sdk" {\n` +
     `  interface CapabilityTypes {\n${entries}\n  }\n` +
     `}\n${jobsNote}`;
 
