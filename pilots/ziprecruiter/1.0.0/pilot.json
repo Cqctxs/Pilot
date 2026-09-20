@@ -3,7 +3,7 @@
   "id": "ziprecruiter",
   "version": "1.0.0",
   "target": {
-    "name": "ZipRecruiter",
+    "name": "www.ziprecruiter.com",
     "url": "https://www.ziprecruiter.com/jobs-search?search=software+intern&location=Boston%2C+MA"
   },
   "capability": "jobs.search@1",
@@ -57,17 +57,25 @@
   },
   "discovered": [],
   "origin": "ai-generated",
-  "createdAt": "2026-09-20T03:46:41.963Z",
+  "createdAt": "2026-09-20T07:09:33.759Z",
   "compiler": {
     "model": "gpt-5.6-sol",
-    "attempts": 2,
-    "steps": 15,
+    "attempts": 1,
+    "steps": 23,
     "repairedFrom": null,
     "skillSource": null
   },
   "evidence": {
     "recordCount": 20,
-    "checkedAt": "2026-09-20T03:46:41.963Z",
-    "sampleFile": "sample.json"
+    "checkedAt": "2026-09-20T07:09:33.759Z",
+    "sampleFile": "sample.json",
+    "probe": {
+      "ran": true,
+      "readKeys": [
+        "keywords",
+        "location"
+      ],
+      "unreadKeys": []
+    }
   }
 }

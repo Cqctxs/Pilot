@@ -111,6 +111,51 @@ export class CapabilityRegistry {
   }
 
   /**
+   * Resolve a capability the caller means to *use*, which therefore has to
+   * exist already.
+   *
+   * `resolve` invents `<name>@1` for a name nobody has declared, because
+   * declaring one is the main reason to type a name that is not there yet.
+   * Using one is the opposite: there is nothing to declare, so inventing an id
+   * turns a typo into a confident lie. `--capability jobs` answering "No
+   * enabled Pilots implement jobs@1" names an interface that has never existed
+   * anywhere, and sends the reader hunting for a missing Pilot instead of a
+   * missing `.search`. Name what is installed instead.
+   *
+   * `alsoImplemented` carries ids that are known to the project without having
+   * a definition file — every Pilot copies its capability's schema into its own
+   * manifest, so one can be searched perfectly well when the shared definition
+   * was never written. Refusing those would break a working project over a
+   * missing file nothing actually reads.
+   */
+  resolveInstalled(id: string, alsoImplemented: readonly string[] = []): string {
+    const installed = [
+      ...new Set([...this.all().map((definition) => definition.id), ...alsoImplemented]),
+    ].sort();
+    const resolved = this.resolve(id);
+    if (installed.includes(resolved)) return resolved;
+
+    const bare = id.split("@")[0]!;
+    // `jobs` → `jobs.search@1`: the typed name is the operation's subject, and
+    // the part that got left off is the one nobody remembers.
+    const near = installed.filter((candidate) => {
+      const name = candidate.split("@")[0]!;
+      return name !== bare && (name.startsWith(`${bare}.`) || bare.startsWith(`${name}.`));
+    });
+    const lines = [
+      near.length > 0 ? `  Did you mean:  ${near.join(", ")}` : null,
+      installed.length > 0
+        ? `  Installed:     ${installed.join(", ")}`
+        : "  Nothing is installed yet — `pilot create <url>` compiles the first one.",
+      "  Published:     pilot ls --remote",
+    ].filter((line): line is string => line !== null);
+    throw pilotError(
+      "UNSUPPORTED_CAPABILITY",
+      `No capability named "${id}" is installed.\n${lines.join("\n")}`,
+    );
+  }
+
+  /**
    * Declare a capability up front, before any Pilot implements it.
    *
    * This is the order the rest of the system assumes and the one `ensure`

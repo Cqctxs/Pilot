@@ -1,0 +1,66 @@
+[
+  {
+    "title": "Software Engineering Intern",
+    "company": "Pilot Labs",
+    "location": "Cambridge, MA",
+    "url": "http://127.0.0.1:4200/jobs/1",
+    "employmentType": "Internship",
+    "postedAt": "2026-09-02"
+  },
+  {
+    "title": "Software Engineer",
+    "company": "Harbor Robotics",
+    "location": "Boston, MA",
+    "url": "http://127.0.0.1:4200/jobs/2",
+    "employmentType": "Full time",
+    "postedAt": "2026-09-04"
+  },
+  {
+    "title": "Data Science Intern",
+    "company": "Pilot Labs",
+    "location": "Toronto, ON",
+    "url": "http://127.0.0.1:4200/jobs/3",
+    "employmentType": "Internship",
+    "postedAt": "2026-09-05"
+  },
+  {
+    "title": "Backend Engineer",
+    "company": "Meridian Health",
+    "location": "Remote",
+    "url": "http://127.0.0.1:4200/jobs/4",
+    "employmentType": "Full time",
+    "postedAt": "2026-09-07"
+  },
+  {
+    "title": "Product Design Intern",
+    "company": "Harbor Robotics",
+    "location": "Boston, MA",
+    "url": "http://127.0.0.1:4200/jobs/5",
+    "employmentType": null,
+    "postedAt": "2026-09-08"
+  },
+  {
+    "title": "Site Reliability Engineer",
+    "company": "Meridian Health",
+    "location": "Austin, TX",
+    "url": "http://127.0.0.1:4200/jobs/6",
+    "employmentType": "Full time",
+    "postedAt": "2026-09-09"
+  },
+  {
+    "title": "Machine Learning Intern (Summer)",
+    "company": "Northwind Analytics",
+    "location": null,
+    "url": "http://127.0.0.1:4200/jobs/7",
+    "employmentType": null,
+    "postedAt": "2026-09-11"
+  },
+  {
+    "title": "Software Engineer",
+    "company": "Harbor Robotics",
+    "location": "New York, NY",
+    "url": "http://127.0.0.1:4200/jobs/8",
+    "employmentType": "Part time",
+    "postedAt": "2026-09-12"
+  }
+]

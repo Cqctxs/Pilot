@@ -1,10 +1,10 @@
 {
   "pilotFormatVersion": 2,
-  "id": "talent",
+  "id": "board",
   "version": "1.0.0",
   "target": {
-    "name": "www.talent.com",
-    "url": "https://www.talent.com/jobs?k=software+intern&l=Boston"
+    "name": "127.0.0.1",
+    "url": "http://127.0.0.1:4200/jobs?q=intern"
   },
   "capability": "jobs.search@1",
   "capabilitySchemaVersion": "1.0.0",
@@ -57,17 +57,17 @@
   },
   "discovered": [],
   "origin": "ai-generated",
-  "createdAt": "2026-09-20T07:07:34.405Z",
+  "createdAt": "2026-09-20T07:04:37.476Z",
   "compiler": {
     "model": "gpt-5.6-sol",
     "attempts": 1,
-    "steps": 26,
+    "steps": 11,
     "repairedFrom": null,
     "skillSource": null
   },
   "evidence": {
-    "recordCount": 20,
-    "checkedAt": "2026-09-20T07:07:34.405Z",
+    "recordCount": 8,
+    "checkedAt": "2026-09-20T07:04:37.476Z",
     "sampleFile": "sample.json",
     "probe": {
       "ran": true,

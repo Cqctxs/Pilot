@@ -3,7 +3,7 @@
   "id": "linkedin",
   "version": "1.0.0",
   "target": {
-    "name": "LinkedIn",
+    "name": "www.linkedin.com",
     "url": "https://www.linkedin.com/jobs/search?keywords=software%20intern&location=Boston"
   },
   "capability": "jobs.search@1",
@@ -57,17 +57,25 @@
   },
   "discovered": [],
   "origin": "ai-generated",
-  "createdAt": "2026-09-20T03:43:35.909Z",
+  "createdAt": "2026-09-20T07:11:06.912Z",
   "compiler": {
     "model": "gpt-5.6-sol",
     "attempts": 1,
-    "steps": 8,
+    "steps": 15,
     "repairedFrom": null,
     "skillSource": null
   },
   "evidence": {
-    "recordCount": 60,
-    "checkedAt": "2026-09-20T03:43:35.909Z",
-    "sampleFile": "sample.json"
+    "recordCount": 25,
+    "checkedAt": "2026-09-20T07:11:06.912Z",
+    "sampleFile": "sample.json",
+    "probe": {
+      "ran": true,
+      "readKeys": [
+        "keywords",
+        "location"
+      ],
+      "unreadKeys": []
+    }
   }
 }

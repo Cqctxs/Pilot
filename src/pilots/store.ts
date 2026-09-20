@@ -36,6 +36,18 @@ export class PilotStore {
     return this.all().filter((item) => item.config.enabled);
   }
 
+  /**
+   * Every capability something here implements, disabled Pilots included: this
+   * answers "is that interface a real thing in this project", which stays true
+   * while a Pilot is switched off.
+   */
+  capabilities(): string[] {
+    const found = this.all()
+      .map((item) => item.pilot.capability)
+      .filter((capability): capability is string => capability !== null);
+    return [...new Set(found)].sort();
+  }
+
   get(id: string): LoadedPilot {
     if (this.pilots === null) this.pilots = this.scan();
     const found = this.pilots.get(id);
