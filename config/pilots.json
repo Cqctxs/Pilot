@@ -1,13 +1,8 @@
 {
   "pilots": [
     {
-      "id": "testboard",
-      "enabled": true,
-      "variables": {}
-    },
-    {
       "id": "tb-designed",
-      "enabled": true,
+      "enabled": false,
       "variables": {}
     },
     {
@@ -23,6 +18,16 @@
     {
       "id": "ziprecruiter",
       "enabled": true,
+      "variables": {}
+    },
+    {
+      "id": "board",
+      "enabled": false,
+      "variables": {}
+    },
+    {
+      "id": "testboard",
+      "enabled": false,
       "variables": {}
     }
   ]

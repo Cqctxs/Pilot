@@ -293,7 +293,7 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
   function capability(id: string): JobsCapability | GenericCapability {
     // One resolution, here, so everything downstream compares full ids: the
     // short name the caller typed becomes the installed major.
-    const resolved = new CapabilityRegistry(env).resolve(id);
+    const resolved = new CapabilityRegistry(env).resolveInstalled(id, store.capabilities());
     if (resolved === JOBS_CAPABILITY) return jobsCapability();
     return genericCapability(resolved);
   }

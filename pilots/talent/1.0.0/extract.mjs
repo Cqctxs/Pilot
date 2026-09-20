@@ -1,77 +1,99 @@
 export async function search(page, query) {
-  if (!page) throw new Error('Talent.com search requires a browser page');
+  const defaultKeywords = 'software intern';
+  const defaultLocation = 'Boston';
+  const keywords = String(query?.keywords || defaultKeywords).trim();
+  const location = String(query?.location || defaultLocation).trim();
+  const requestedLimit = Number(query?.limit);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.floor(requestedLimit)
+    : 60;
 
-  const keywords = query?.keywords == null ? '' : String(query.keywords).trim();
-  const locationQuery = query?.location == null ? '' : String(query.location).trim();
-  const requested = Number(query?.limit);
-  const limit = Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 20;
-  const maxPages = Math.min(3, Math.max(1, Math.ceil(limit / 20)));
+  const base = new URL('https://www.talent.com/jobs');
+  if (keywords) base.searchParams.set('k', keywords);
+  if (location) base.searchParams.set('l', location);
+
   const results = [];
   const seen = new Set();
 
-  for (let pageNumber = 1; pageNumber <= maxPages && results.length < limit; pageNumber++) {
-    const params = new URLSearchParams();
-    if (keywords) params.set('k', keywords);
-    if (locationQuery) params.set('l', locationQuery);
-    if (pageNumber > 1) params.set('p', String(pageNumber));
-    const searchUrl = `https://www.talent.com/jobs?${params.toString()}`;
+  for (let pageNumber = 1; pageNumber <= 3 && results.length < limit; pageNumber++) {
+    const url = new URL(base.href);
+    if (pageNumber > 1) url.searchParams.set('p', String(pageNumber));
 
-    let response;
-    try {
-      response = await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
-    } catch (error) {
-      throw new Error(`Talent.com search page ${pageNumber} did not load: ${error.message}`);
-    }
-    if (!response) throw new Error(`Talent.com search page ${pageNumber} returned no response`);
-    if (response.status() >= 400) {
-      throw new Error(`Talent.com search page ${pageNumber} returned HTTP ${response.status()}`);
-    }
+    const response = await page.goto(url.href, {
+      waitUntil: 'domcontentloaded',
+      timeout: 12000
+    });
+    if (!response) throw new Error(`Talent.com did not return a response for page ${pageNumber}`);
+    if (!response.ok()) throw new Error(`Talent.com returned HTTP ${response.status()} for page ${pageNumber}`);
 
     try {
-      await page.waitForSelector('article[data-testid="job-card-unified"], [data-testid="searchNoJobFound"]', { timeout: 10000 });
-    } catch (error) {
-      const diagnostic = await page.locator('body').innerText().catch(() => '');
-      if (/captcha|verify you are human|access denied|unusual traffic|temporarily blocked/i.test(diagnostic)) {
-        throw new Error('Talent.com served a captcha or access-block page');
+      await page.waitForFunction(
+        () => document.querySelector('article[data-testid="job-card-unified"]') ||
+              document.querySelector('[data-testid="searchNoJobFound"]'),
+        null,
+        { timeout: 6000 }
+      );
+    } catch {
+      const diagnosis = await page.evaluate(() => ({
+        title: document.title,
+        text: (document.body?.innerText || '').slice(0, 1200)
+      }));
+      if (/captcha|access denied|verify (that )?you are human|unusual traffic|just a moment/i.test(`${diagnosis.title} ${diagnosis.text}`)) {
+        throw new Error('Talent.com served a challenge or block page');
       }
-      throw new Error(`Talent.com search results did not appear on page ${pageNumber}`);
+      throw new Error(`Talent.com results did not load on page ${pageNumber}`);
     }
 
-    const noResults = await page.$('[data-testid="searchNoJobFound"]');
-    const cardCount = await page.locator('article[data-testid="job-card-unified"]').count();
-    if (noResults && cardCount === 0) break;
-    if (cardCount === 0) throw new Error(`Talent.com page ${pageNumber} had no job cards or explicit no-results message`);
+    const extracted = await page.evaluate(() => {
+      const noResults = Boolean(document.querySelector('[data-testid="searchNoJobFound"]'));
+      const records = [...document.querySelectorAll('article[data-testid="job-card-unified"]')].map(article => {
+        const clean = value => value ? value.replace(/\s+/g, ' ').trim() : null;
+        const addressParts = [...article.querySelectorAll('address span')]
+          .map(span => clean(span.textContent))
+          .filter(Boolean);
+        const link = article.querySelector('a[href*="/view?id="]');
 
-    const pageRecords = await page.$$eval('article[data-testid="job-card-unified"]', cards => cards.map(card => {
-      const text = element => element?.textContent?.trim() || null;
-      const meta = [...card.querySelectorAll('address span')]
-        .filter(span => span.getAttribute('aria-hidden') !== 'true');
-      const labels = [...card.querySelectorAll('svg[title]')]
-        .map(svg => svg.getAttribute('title')?.trim())
-        .filter(Boolean);
-      const employmentType = labels.find(label => /^(?:full[- ]?time|part[- ]?time|permanent|temporary|contract(?:or)?|internship|seasonal|freelance|casual|apprenticeship)(?:\s*\+\d+)?$/i.test(label)) || null;
-      const link = card.querySelector('a[href*="/view?"]');
-      const href = link?.getAttribute('href');
+        const body = article.querySelector(':scope > div');
+        const badgeBox = body?.querySelector(':scope > div:first-child');
+        const badges = badgeBox
+          ? [...badgeBox.children].map(node => clean(node.textContent)).filter(Boolean)
+          : [];
+        const employmentType = badges.find(text =>
+          !/\$|€|£|¥|hourly|annually|yearly|daily|weekly|monthly|quick apply|new!/i.test(text)
+        ) || null;
 
-      return {
-        title: text(card.querySelector('h2')),
-        company: text(meta[0]),
-        location: text(meta[1]),
-        url: href ? new URL(href, window.location.origin).href : null,
-        employmentType,
-        postedAt: text(card.querySelector('time'))
-      };
-    }));
+        return {
+          title: clean(article.querySelector('h2')?.textContent),
+          company: addressParts[0] || null,
+          location: addressParts.length > 1 ? addressParts[addressParts.length - 1] : null,
+          url: link ? new URL(link.getAttribute('href'), window.location.origin).href : null,
+          employmentType,
+          postedAt: clean(article.querySelector('time')?.textContent)
+        };
+      });
 
-    let added = 0;
-    for (const record of pageRecords) {
-      if (!record.title || !record.company || !record.url || seen.has(record.url)) continue;
+      const next = document.querySelector('a[aria-label="Next page"]');
+      const hasNext = Boolean(next && next.getAttribute('aria-disabled') !== 'true');
+      return { noResults, records, hasNext };
+    });
+
+    if (extracted.noResults) {
+      if (pageNumber === 1) return [];
+      break;
+    }
+    if (!extracted.records.length) {
+      throw new Error(`Talent.com returned a results page without readable job cards on page ${pageNumber}`);
+    }
+
+    for (const record of extracted.records) {
+      if (!record.title || !record.company || !record.url) continue;
+      if (seen.has(record.url)) continue;
       seen.add(record.url);
       results.push(record);
-      added++;
       if (results.length >= limit) break;
     }
-    if (added === 0 || pageRecords.length < 20) break;
+
+    if (!extracted.hasNext) break;
   }
 
   return results.slice(0, limit);

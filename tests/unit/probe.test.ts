@@ -39,6 +39,35 @@ describe("probeKeys", () => {
     expect(probeKeys(flights)[0]).toBe("departureDate");
   });
 
+  /**
+   * The compile validates with an empty query, so this is the shape the probe
+   * actually meets. Before this case it returned nothing and every freshly
+   * compiled Pilot recorded `probe.ran: false` — the check was installed and
+   * inert.
+   */
+  it("fills in blank keys when the query says nothing at all", () => {
+    expect(probeKeys({ keywords: "", location: "", limit: null })).toEqual([
+      "keywords",
+      "location",
+    ]);
+  });
+
+  /**
+   * Every query carries keywords and location whether or not the capability
+   * means anything by them. Probing them next to a real flights query would
+   * fail a correct Pilot for ignoring a key it is right to ignore.
+   */
+  it("leaves blank keys alone when the query already says something", () => {
+    expect(probeKeys(flights)).not.toContain("keywords");
+    expect(probeKeys(flights)).not.toContain("location");
+  });
+
+  it("does not invent a value for a key it has no stand-in for", () => {
+    expect(probeKeys({ keywords: "", location: "", limit: null, cabinClass: "" })).not.toContain(
+      "cabinClass",
+    );
+  });
+
   it("caps the number of probe runs", () => {
     const wide: ScriptQuery = { keywords: "a", location: "b", limit: null };
     for (let index = 0; index < 10; index += 1) wide[`extra${index}`] = `value${index}`;

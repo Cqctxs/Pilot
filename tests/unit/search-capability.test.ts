@@ -78,6 +78,39 @@ describe("search capability inference", () => {
     ).toBe("books.list@1");
   });
 
+  /**
+   * The reported failure: `--capability jobs` answered "No enabled Pilots
+   * implement jobs@1". Nothing has ever been called jobs@1 — resolution
+   * invented it out of the name, so the message blamed a missing Pilot for a
+   * missing `.search`. Searching must name what is here instead of minting an
+   * id for what isn't.
+   */
+  it("refuses a capability nobody has, and points at the near miss", () => {
+    expect(() => resolveSearchCapability(env, parseArgs(["--capability", "jobs"]))).toThrow(
+      /No capability named "jobs" is installed/,
+    );
+    expect(() => resolveSearchCapability(env, parseArgs(["--capability", "jobs"]))).toThrow(
+      /Did you mean:\s+jobs\.search@1/,
+    );
+  });
+
+  it("names the installed capabilities when there is no near miss", () => {
+    expect(() =>
+      resolveSearchCapability(env, parseArgs(["--capability", "flights.search"])),
+    ).toThrow(/Installed:\s+books\.list@1, jobs\.search@1/);
+  });
+
+  /**
+   * A Pilot carries its own copy of the schema, so it searches fine whether or
+   * not the shared definition was ever written to disk. Strictness must not
+   * turn that into a failure.
+   */
+  it("accepts a capability known only from an installed Pilot", () => {
+    expect(
+      resolveSearchCapability(env, parseArgs(["--capability", "books.list"])),
+    ).toBe("books.list@1");
+  });
+
   it("refuses to combine Pilots implementing different interfaces", () => {
     expect(() => resolveSearchCapability(env, parseArgs(["books", "jobs"]))).toThrow(
       /different capabilities/,

@@ -207,14 +207,39 @@ export function varyValue(key: string, value: string): string {
  * common metasearch failure, and it is invisible to a probe that varies
  * everything at once: the route change alone makes the output differ, the
  * check passes, and every flight it ever returns is dated wrong.
+ *
+ * When nothing carries a value, blank keys are filled in instead. A compile
+ * validates with an empty query — asking a job board for everything is the one
+ * question every board answers — so a check that could only vary keys already
+ * carrying a value had nothing to vary and never ran. Every Pilot compiled
+ * that way recorded `probe.ran: false`, which is honest and useless: the
+ * machinery existed and measured nothing. Going from "" to a real value is the
+ * same experiment run the other way round, and a script that ignores the query
+ * answers identically either way.
+ *
+ * Only as a fallback, though. Every query carries `keywords` and `location`
+ * whether or not the capability means anything by them, so filling them in
+ * alongside a flights query that already has airports and a date would fail a
+ * correct flights Pilot for ignoring a key it is right to ignore. A query that
+ * already says something is probed on what it says.
  */
 export function probeKeys(query: ScriptQuery, excludedKeys: readonly string[] = []): string[] {
   const excluded = new Set(excludedKeys);
-  const keys = Object.entries(query)
-    .filter(([key, value]) => !excluded.has(key) && typeof value === "string" && value.trim() !== "")
-    .map(([key]) => key);
+  const text = Object.entries(query).filter(
+    ([key, value]) => !excluded.has(key) && typeof value === "string",
+  );
   const isDate = (key: string) => ISO_DATE.test(String(query[key]));
-  return [...keys.filter(isDate), ...keys.filter((key) => !isDate(key))].slice(0, MAX_PROBES);
+  const filled = text.filter(([, value]) => (value as string).trim() !== "").map(([key]) => key);
+  if (filled.length > 0) {
+    return [...filled.filter(isDate), ...filled.filter((key) => !isDate(key))].slice(0, MAX_PROBES);
+  }
+  // Only keys with a known-good stand-in: filling `limit` or an unknown key
+  // with invented text asks the site a question it may simply reject, and a
+  // rejected request proves nothing about what the script read.
+  return text
+    .filter(([key, value]) => (value as string).trim() === "" && key in PROBE_VALUES)
+    .map(([key]) => key)
+    .slice(0, MAX_PROBES);
 }
 
 /** One key changed, everything else exactly as the script was given it. */
@@ -281,7 +306,15 @@ async function probeEachKey(input: {
 function describeUnread(unread: string[], query: ScriptQuery): string {
   return (
     `The script ignores ${unread.length === 1 ? "one input" : "these inputs"}: ` +
-    `${unread.map((key) => `${key} (${JSON.stringify(query[key])})`).join(", ")}. ` +
+    // Both ends of the experiment, so the reader can repeat it by hand rather
+    // than guess what "ignores keywords" was measured against.
+    `${unread
+      .map(
+        (key) =>
+          `${key} (${JSON.stringify(query[key])} → ` +
+          `${JSON.stringify(varyValue(key, String(query[key])))})`,
+      )
+      .join(", ")}. ` +
     `Changing ${unread.length === 1 ? "it" : "them"} produced byte-identical records, ` +
     `which means the value is written into the script — into the URL, a form fill, ` +
     `or a selector — rather than read from the \`query\` argument. Build every part ` +

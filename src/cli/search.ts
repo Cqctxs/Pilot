@@ -80,9 +80,11 @@ export async function runSearch(env: PilotEnv, args: ParsedArgs): Promise<number
  */
 export function resolveSearchCapability(env: PilotEnv, args: ParsedArgs): string {
   const requested = flagString(args, "capability");
-  if (requested) return new CapabilityRegistry(env).resolve(requested);
-
   const store = new PilotStore(env);
+  if (requested) {
+    return new CapabilityRegistry(env).resolveInstalled(requested, store.capabilities());
+  }
+
   const selected = args.positional.length > 0
     ? [...new Set(args.positional)].map((id) => store.get(id).pilot)
     : store.enabled().map((item) => item.pilot).filter((pilot) => pilot.capability !== null);
