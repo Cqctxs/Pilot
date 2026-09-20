@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { loadEnv } from "../shared/env.js";
 import { toPilotError } from "../shared/errors.js";
-import { parseArgs, flagNumber, flagString } from "./args.js";
+import { parseArgs, flagNumber, flagString, assertKnownFlags } from "./args.js";
 import { runCreate } from "./create.js";
 import { runList } from "./list.js";
 import { runSearch } from "./search.js";
@@ -75,6 +75,39 @@ Examples:
   pilot search indeed linkedin        both, merged and deduped
 `;
 
+/**
+ * What each command accepts. The point is not tidiness — it is that an
+ * unrecognized flag used to vanish silently, and `pilot search --query ...`
+ * (the right flag for `create`, the wrong one for `search`) then ran a
+ * keyword-less search and printed a screen of real jobs matching nothing.
+ */
+const KNOWN_FLAGS: Record<string, readonly string[]> = {
+  create: [
+    "id", "name", "capability", "fields", "query", "location", "from-skill",
+    "attempts", "steps", "compile", "watch",
+  ],
+  list: ["json"],
+  capabilities: ["fields", "from", "force", "json"],
+  fields: ["json"],
+  enable: [],
+  disable: [],
+  search: [
+    "capability", "keywords", "location", "type", "limit", "filter", "param",
+    "strict-location", "json", "no-report",
+  ],
+  repair: ["query", "failure"],
+  publish: [],
+  install: [],
+  outdated: ["json"],
+  update: ["json"],
+  uninstall: ["json"],
+  lock: ["json"],
+  registry: ["capability", "limit", "json"],
+  promptlab: ["runs"],
+  mcp: [],
+  testboard: ["port", "layout", "hostile", "delay"],
+};
+
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
   const command = argv[0];
@@ -85,6 +118,9 @@ async function main(): Promise<number> {
     process.stdout.write(HELP);
     return 0;
   }
+
+  const known = KNOWN_FLAGS[command];
+  if (known) assertKnownFlags(command, args, known);
 
   switch (command) {
     case "create":
