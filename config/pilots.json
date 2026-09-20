@@ -1,11 +1,6 @@
 {
   "pilots": [
     {
-      "id": "testboard",
-      "enabled": false,
-      "variables": {}
-    },
-    {
       "id": "tb-designed",
       "enabled": false,
       "variables": {}
@@ -27,12 +22,12 @@
     },
     {
       "id": "board",
-      "enabled": true,
+      "enabled": false,
       "variables": {}
     },
     {
-      "id": "weworkremotely",
-      "enabled": true,
+      "id": "testboard",
+      "enabled": false,
       "variables": {}
     }
   ]
