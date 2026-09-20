@@ -70,6 +70,24 @@ export const pilotSchema = z.strictObject({
     recordCount: z.number().int().nonnegative(),
     checkedAt: z.string(),
     sampleFile: z.string().nullable().default(null),
+    /**
+     * Which query keys this Pilot was *shown* to read, by re-running it with
+     * each one changed.
+     *
+     * `ran: false` means the check never happened — the site throttled, or the
+     * Pilot predates the check. That is not the same as passing it, and the
+     * difference has to be legible: an unprobed Pilot may be returning the same
+     * records for every question anyone ever asks it, and nothing else in this
+     * file would show that.
+     */
+    probe: z
+      .strictObject({
+        ran: z.boolean(),
+        readKeys: z.array(z.string()),
+        unreadKeys: z.array(z.string()),
+        skippedKeys: z.array(z.string()).optional(),
+      })
+      .default({ ran: false, readKeys: [], unreadKeys: [] }),
   }),
 });
 

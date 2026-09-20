@@ -27,6 +27,7 @@ import { toPilotError } from "../shared/errors.js";
 import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import { parseFieldList, type DataSchema } from "../shared/schema.js";
 import { installPilotPackage } from "../cli/packages.js";
+import { queryReads, type QueryReads } from "../pilots/reads.js";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -365,14 +366,8 @@ export function buildServer(env: PilotEnv): McpServer {
         const script = store.readScript(id);
         const sample = store.samples().get(id) ?? [];
 
-        // Which query keys the script mentions at all. A Pilot that never names
-        // one is returning the same thing regardless of what it is asked, which
-        // is exactly the failure that survives every other check.
-        const reads = [...new Set(
-          [...script.matchAll(/query\s*(?:\.\s*([A-Za-z_$][\w$]*)|\[\s*["']([^"']+)["']\s*\])/g)].map(
-            (match) => match[1] ?? match[2]!,
-          ),
-        )];
+        const reads = queryReads(script);
+        const probe = loaded.pilot.evidence.probe;
 
         const summary =
           `${loaded.pilot.id}@${loaded.pilot.version} — ${loaded.pilot.target.name}\n` +
@@ -380,7 +375,8 @@ export function buildServer(env: PilotEnv): McpServer {
           `  capability: ${loaded.pilot.capability ?? "ad-hoc"}\n` +
           `  transport:  ${loaded.pilot.artifact.needsBrowser ? "browser" : "http"}\n` +
           `  fields:     ${loaded.pilot.schema.fields.map((field) => field.name).join(", ")}\n` +
-          `  reads query: ${reads.length > 0 ? reads.join(", ") : "NOTHING — it ignores its query and will return the same records for every request"}\n` +
+          `  reads query: ${describeReads(reads)}\n` +
+          `  probed:     ${describeProbe(probe)}\n` +
           `  compiled:   ${loaded.pilot.createdAt}, ${loaded.pilot.evidence.recordCount} records at the time\n` +
           `  directory:  ${loaded.dir}\n`;
 
@@ -392,7 +388,9 @@ export function buildServer(env: PilotEnv): McpServer {
             (source === false ? "" : `\nScript:\n${script}\n`),
           {
             pilot: loaded.pilot,
-            readsQueryKeys: reads,
+            readsQueryKeys: reads.keys,
+            readConfidence: reads.confidence,
+            probe,
             sample: sample.slice(0, 3),
             script: source === false ? null : script,
           },
@@ -803,4 +801,32 @@ export function buildServer(env: PilotEnv): McpServer {
 export async function startMcpServer(env: PilotEnv): Promise<void> {
   const server = buildServer(env);
   await server.connect(new StdioServerTransport());
+}
+
+/**
+ * Reading a script tells you what it probably does; running it tells you what
+ * it does. Say which one this is, and never accuse on the weaker evidence.
+ */
+function describeReads(reads: QueryReads): string {
+  if (reads.confidence === "exact") return reads.keys.join(", ");
+  if (reads.confidence === "uncertain") return `unclear from the source — ${reads.note}`;
+  return "NOTHING — the script never mentions `query`, so every request returns the same records";
+}
+
+function describeProbe(probe: {
+  ran: boolean;
+  readKeys: string[];
+  unreadKeys: string[];
+  skippedKeys?: string[];
+}): string {
+  if (!probe.ran) {
+    return (
+      "never checked — this Pilot has not been re-run with a changed query, so " +
+      "whether it reads its inputs is unverified (it may predate the check, or the site throttled)"
+    );
+  }
+  const parts = [`reads ${probe.readKeys.join(", ") || "nothing"}`];
+  if (probe.unreadKeys.length > 0) parts.push(`IGNORES ${probe.unreadKeys.join(", ")}`);
+  if (probe.skippedKeys?.length) parts.push(`not checked: ${probe.skippedKeys.join(", ")}`);
+  return `measured — ${parts.join("; ")}`;
 }

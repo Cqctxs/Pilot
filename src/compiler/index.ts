@@ -29,7 +29,7 @@ import {
   systemPrompt,
   type PromptStyle,
 } from "./prompts.js";
-import { validateScript } from "./validate.js";
+import { validateScript, type ProbeOutcome } from "./validate.js";
 import type { SkillNotes } from "./skills.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 3;
@@ -118,7 +118,12 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
         repairedFrom: null,
         skillSource: options.notes?.source ?? null,
       },
-      evidence: { recordCount: session.records.length, checkedAt: now, sampleFile: "sample.json" },
+      evidence: {
+        recordCount: session.records.length,
+        checkedAt: now,
+        sampleFile: "sample.json",
+        probe: session.probe,
+      },
     };
 
     return { pilot, code: session.code, records: session.records, attempts: session.attempts, steps: session.steps };
@@ -196,7 +201,12 @@ ${buildTaskPrompt({
         repairedFrom: options.pilot.version,
         skillSource: options.pilot.compiler?.skillSource ?? null,
       },
-      evidence: { recordCount: session.records.length, checkedAt: now, sampleFile: "sample.json" },
+      evidence: {
+        recordCount: session.records.length,
+        checkedAt: now,
+        sampleFile: "sample.json",
+        probe: session.probe,
+      },
     };
 
     return { pilot, code: session.code, records: session.records, attempts: session.attempts, steps: session.steps };
@@ -207,6 +217,8 @@ ${buildTaskPrompt({
 
 interface SessionResult {
   code: string;
+  /** Which query keys the accepted script was shown to read. */
+  probe: ProbeOutcome;
   needsBrowser: boolean;
   schema: DataSchema;
   discovered: string[];
@@ -273,7 +285,7 @@ async function runSession(input: {
         input.progress(`validating submitted script (attempt ${attempts}/${input.maxAttempts})`);
 
         const report = extension.problems.length > 0
-          ? { ok: false, records: [], problems: extension.problems }
+          ? { ok: false, records: [], problems: extension.problems, probe: { ran: false, readKeys: [], unreadKeys: [] } }
           : await validateScript({
               code,
               needsBrowser,
@@ -305,6 +317,7 @@ async function runSession(input: {
             schema: extension.schema,
             discovered,
             records: report.records,
+            probe: report.probe,
             attempts,
             steps,
           };

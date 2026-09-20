@@ -18,7 +18,12 @@ export interface ValidationReport {
   records: RawRecord[];
   /** Human-readable reasons, fed straight back to the model on a retry. */
   problems: string[];
+  /** Which query keys the script was shown to read. */
+  probe: ProbeOutcome;
 }
+
+/** A report for a candidate that never got far enough to be asked twice. */
+const NOT_PROBED = { ran: false, readKeys: [], unreadKeys: [] };
 
 /** Required fields must be present on essentially every record, not just most. */
 const REQUIRED_FIELD_COVERAGE = 0.9;
@@ -75,7 +80,7 @@ export async function validateScript(input: {
 }): Promise<ValidationReport> {
   const staticProblems = checkScriptSource(input.code);
   if (staticProblems.length > 0) {
-    return { ok: false, records: [], problems: staticProblems };
+    return { ok: false, records: [], problems: staticProblems, probe: NOT_PROBED };
   }
 
   const dir = mkdtempSync(path.join(tmpdir(), "pilot-validate-"));
@@ -96,7 +101,7 @@ export async function validateScript(input: {
       origin: "ai-generated",
       createdAt: new Date().toISOString(),
       compiler: null,
-      evidence: { recordCount: 0, checkedAt: new Date().toISOString(), sampleFile: null },
+      evidence: { recordCount: 0, checkedAt: new Date().toISOString(), sampleFile: null, probe: NOT_PROBED },
     };
 
     let records: RawRecord[];
@@ -107,30 +112,30 @@ export async function validateScript(input: {
       });
     } catch (cause) {
       const error = toPilotError(cause);
-      return { ok: false, records: [], problems: [`${error.code}: ${error.message}`] };
+      return { ok: false, records: [], problems: [`${error.code}: ${error.message}`], probe: NOT_PROBED };
     }
 
-    const report = { ...judge(records, input.schema, input.code), records };
+    const report: ValidationReport = {
+      ...judge(records, input.schema, input.code),
+      records,
+      probe: { ran: false, readKeys: [], unreadKeys: [] },
+    };
     if (!report.ok || input.probe === false) return report;
 
     // Everything above proves the script reads the site. Nothing above proves
-    // it reads the *query* — so ask it a second, different question.
-    const probe = probeQuery(input.query);
-    if (!probe) return report;
-    try {
-      const again = await runScript(candidate, dir, probe, {
-        timeoutMs: input.timeoutMs,
-        onLog: input.onLog,
-      });
-      const problem = judgeProbe(records, again, input.query, probe);
-      if (problem) {
-        report.ok = false;
-        report.problems.push(problem);
-      }
-    } catch {
-      // A probe that throws says nothing either way — a site may reject an
-      // unfamiliar query, and failing the compile for that would be worse than
-      // the gap this check closes.
+    // it reads the *query*, so ask again — one key at a time.
+    const outcome = await probeEachKey({
+      candidate,
+      dir,
+      query: input.query,
+      first: records,
+      timeoutMs: input.timeoutMs,
+      onLog: input.onLog,
+    });
+    report.probe = outcome;
+    if (outcome.unreadKeys.length > 0) {
+      report.ok = false;
+      report.problems.push(describeUnread(outcome.unreadKeys, input.query));
     }
     return report;
   } finally {
@@ -138,24 +143,16 @@ export async function validateScript(input: {
   }
 }
 
-/**
- * A different question, built from the one the compiler was given.
- *
- * Returns null when there is nothing to vary — an empty query cannot be
- * perturbed, and a script for a site with no search is legitimately constant.
- */
-export function probeQuery(query: ScriptQuery): ScriptQuery | null {
-  const changed: ScriptQuery = { ...query };
-  let varied = false;
-  for (const [key, value] of Object.entries(query)) {
-    if (typeof value !== "string" || value.trim() === "") continue;
-    // Deliberately unrelated to the original. A near-miss ("intern" →
-    // "interns") can legitimately return the same page of results; something
-    // entirely different cannot, unless the query was never used.
-    changed[key as keyof ScriptQuery] = varyValue(key, value);
-    varied = true;
-  }
-  return varied ? changed : null;
+/** What the probe learned. Recorded on the Pilot, not just used and discarded. */
+export interface ProbeOutcome {
+  /** False when the probe could not run at all — no keys, or every run failed. */
+  ran: boolean;
+  /** Keys the script demonstrably reads: changing them changed the answer. */
+  readKeys: string[];
+  /** Keys it demonstrably ignores. Any entry here fails the compile. */
+  unreadKeys: string[];
+  /** Keys whose probe run threw, so nothing was learned about them. */
+  skippedKeys?: string[];
 }
 
 /**
@@ -167,9 +164,17 @@ const PROBE_VALUES: Record<string, string> = {
   location: "Reykjavik",
   origin: "OSL",
   destination: "AKL",
+  departureAirport: "OSL",
+  arrivalAirport: "AKL",
 };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Sites throttle back-to-back requests; a 429 teaches the probe nothing. */
+const PROBE_SPACING_MS = 4_000;
+
+/** At most this many probe runs, so a wide query cannot make a compile crawl. */
+const MAX_PROBES = 4;
 
 /**
  * A different value of the same kind.
@@ -179,7 +184,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * date five weeks later is still a date, so the site answers, and a script that
  * ignored it answers identically.
  */
-function varyValue(key: string, value: string): string {
+export function varyValue(key: string, value: string): string {
   if (ISO_DATE.test(value)) {
     const shifted = new Date(`${value}T00:00:00Z`);
     shifted.setUTCDate(shifted.getUTCDate() + 35);
@@ -189,35 +194,86 @@ function varyValue(key: string, value: string): string {
 }
 
 /**
- * Did the script actually use its query?
+ * The keys worth probing, in the order they are most often hardcoded.
  *
- * The failure this catches: a compiler that inlines the sample values it was
- * given — a flights script with `YTO-YVR/2026-10-20` baked into the URL — then
- * passes validation because validation re-runs the very query it hardcoded.
- * Twenty real records come back, every field populated, and the Pilot returns
- * Toronto→Vancouver for every question anyone ever asks it. Confidently wrong,
- * and nothing downstream can tell.
- *
- * Identical output for an unrelated query is the signature. Zero records for
- * the probe is a *pass*: it means the site was asked and had nothing.
+ * Dates first. A script that reads the route but inlines the date is the
+ * common metasearch failure, and it is invisible to a probe that varies
+ * everything at once: the route change alone makes the output differ, the
+ * check passes, and every flight it ever returns is dated wrong.
  */
-export function judgeProbe(
-  first: RawRecord[],
-  second: RawRecord[],
-  query: ScriptQuery,
-  probe: ScriptQuery,
-): string | null {
-  if (first.length === 0) return null;
-  if (fingerprint(first) !== fingerprint(second)) return null;
-  const varied = Object.keys(probe).filter(
-    (key) => probe[key as keyof ScriptQuery] !== query[key as keyof ScriptQuery],
-  );
+export function probeKeys(query: ScriptQuery): string[] {
+  const keys = Object.entries(query)
+    .filter(([, value]) => typeof value === "string" && value.trim() !== "")
+    .map(([key]) => key);
+  const isDate = (key: string) => ISO_DATE.test(String(query[key]));
+  return [...keys.filter(isDate), ...keys.filter((key) => !isDate(key))].slice(0, MAX_PROBES);
+}
+
+/** One key changed, everything else exactly as the script was given it. */
+export function probeQuery(query: ScriptQuery, key: string): ScriptQuery {
+  return { ...query, [key]: varyValue(key, String(query[key])) };
+}
+
+/**
+ * Ask the script the same question with one detail changed, for each detail.
+ *
+ * Varying every key at once only proves the script read *something*. A flights
+ * script that builds its route from the query but writes the date in as a
+ * literal answers differently when the route changes, so it passes — and then
+ * dates every flight it ever returns with the day it was compiled. One key at a
+ * time is the only version of this check that names which key is wrong.
+ */
+async function probeEachKey(input: {
+  candidate: Pilot;
+  dir: string;
+  query: ScriptQuery;
+  first: RawRecord[];
+  timeoutMs?: number;
+  onLog?: (message: string) => void;
+}): Promise<ProbeOutcome> {
+  const outcome: ProbeOutcome = { ran: false, readKeys: [], unreadKeys: [] };
+  if (input.first.length === 0) return outcome;
+
+  const skipped: string[] = [];
+  for (const key of probeKeys(input.query)) {
+    const probe = probeQuery(input.query, key);
+    input.onLog?.(`probing ${key}: ${JSON.stringify(input.query[key])} → ${JSON.stringify(probe[key])}`);
+    // Spaced, because the sites most worth checking are the ones that throttle.
+    // Probing immediately after the first run is how you get a 429 instead of
+    // an answer, on exactly the Pilots that need the answer most.
+    await new Promise((resolve) => setTimeout(resolve, PROBE_SPACING_MS));
+    try {
+      const again = await runScript(input.candidate, input.dir, probe, {
+        timeoutMs: input.timeoutMs,
+        onLog: input.onLog,
+      });
+      outcome.ran = true;
+      // Different answer — or no answer, which means the site was asked and had
+      // nothing for the new value. Either way the key reached the site.
+      if (again.length === 0 || fingerprint(input.first) !== fingerprint(again)) {
+        outcome.readKeys.push(key);
+      } else {
+        outcome.unreadKeys.push(key);
+      }
+    } catch {
+      // Nothing learned about this key: a site may reject an unfamiliar value,
+      // or throttle. Recorded rather than silently forgotten, so a Pilot that
+      // was never actually checked is distinguishable from one that passed.
+      skipped.push(key);
+    }
+  }
+  if (skipped.length > 0) outcome.skippedKeys = skipped;
+  return outcome;
+}
+
+function describeUnread(unread: string[], query: ScriptQuery): string {
   return (
-    `The script returned identical records for two different queries ` +
-    `(${varied.map((key) => `${key}: ${JSON.stringify(query[key as keyof ScriptQuery])} → ${JSON.stringify(probe[key as keyof ScriptQuery])}`).join(", ")}). ` +
-    `It is not reading the query — most likely the sample values are written into ` +
-    `the URL or the selectors. Build the request from the \`query\` argument so a ` +
-    `different question gives a different answer.`
+    `The script ignores ${unread.length === 1 ? "one input" : "these inputs"}: ` +
+    `${unread.map((key) => `${key} (${JSON.stringify(query[key])})`).join(", ")}. ` +
+    `Changing ${unread.length === 1 ? "it" : "them"} produced byte-identical records, ` +
+    `which means the value is written into the script — into the URL, a form fill, ` +
+    `or a selector — rather than read from the \`query\` argument. Build every part ` +
+    `of the request from \`query\`, so a different question gives a different answer.`
   );
 }
 
