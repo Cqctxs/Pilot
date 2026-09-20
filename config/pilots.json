@@ -27,7 +27,12 @@
     },
     {
       "id": "board",
-      "enabled": false,
+      "enabled": true,
+      "variables": {}
+    },
+    {
+      "id": "weworkremotely",
+      "enabled": true,
       "variables": {}
     }
   ]
