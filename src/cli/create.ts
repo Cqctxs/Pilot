@@ -65,8 +65,19 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     return 1;
   }
 
+  // Prior knowledge, when the caller has some. Fetched before the browser
+  // opens so a bad reference fails in a second rather than mid-compile.
+  const skillRef = flagString(args, "from-skill");
+  let notes = null;
+  if (skillRef) {
+    const { fetchSkillNotes } = await import("../compiler/skills.js");
+    notes = await fetchSkillNotes(skillRef);
+    process.stderr.write(`  reference notes: ${notes.source} (${notes.markdown.length} bytes)\n`);
+  }
+
   const result = await compile({
     url,
+    notes,
     id,
     name: flagString(args, "name"),
     capability,

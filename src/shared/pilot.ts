@@ -55,6 +55,13 @@ export const pilotSchema = z.strictObject({
       /** Tool calls the explorer spent on the site. */
       steps: z.number().int().nonnegative().default(0),
       repairedFrom: z.string().nullable().default(null),
+      /**
+       * Reference notes this compile was given, if any — e.g.
+       * `browse.sh:indeed.com/search-jobs-8yxl6y`. Provenance: a script built
+       * with a prior was not derived from this site alone, and a reader
+       * deciding whether to trust it should be able to see that.
+       */
+      skillSource: z.string().nullable().default(null),
     })
     .nullable()
     .default(null),

@@ -123,6 +123,7 @@ pilot list                    Installed Pilots and whether they are enabled
 pilot list <capability>       Published Pilots for that function type
 pilot capabilities            Shared schemas and their versions
 pilot fields [targets...]     Which fields the selected Pilots return
+pilot create <url> --from-skill <ref>   Compile starting from published notes
 pilot capabilities add <id>   Declare a capability before anything implements it
 pilot capabilities publish    Share the interface; install takes someone else's
 pilot enable|disable <id>     Include or exclude from unqualified searches

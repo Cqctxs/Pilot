@@ -30,6 +30,7 @@ import {
   type PromptStyle,
 } from "./prompts.js";
 import { validateScript } from "./validate.js";
+import type { SkillNotes } from "./skills.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_MAX_STEPS = 30;
@@ -49,6 +50,8 @@ export interface CompileOptions {
   headless?: boolean;
   /** Which system prompt to compile with. Defaults to the configured style. */
   promptStyle?: PromptStyle;
+  /** Prior knowledge about the site, e.g. a browse.sh SKILL.md. */
+  notes?: SkillNotes | null;
   env?: PilotEnv;
   onProgress?: (message: string) => void;
 }
@@ -84,6 +87,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
         url: options.url,
         schema: options.schema,
         sampleQuery: describeQuery(query),
+        notes: options.notes,
       }),
     });
 
@@ -112,6 +116,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
         attempts: session.attempts,
         steps: session.steps,
         repairedFrom: null,
+        skillSource: options.notes?.source ?? null,
       },
       evidence: { recordCount: session.records.length, checkedAt: now, sampleFile: "sample.json" },
     };
@@ -189,6 +194,7 @@ ${buildTaskPrompt({
         attempts: session.attempts,
         steps: session.steps,
         repairedFrom: options.pilot.version,
+        skillSource: options.pilot.compiler?.skillSource ?? null,
       },
       evidence: { recordCount: session.records.length, checkedAt: now, sampleFile: "sample.json" },
     };

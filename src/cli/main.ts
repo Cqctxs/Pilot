@@ -17,6 +17,10 @@ const HELP = `Pilot — compile any website into a reusable data API.
     --capability <id>           Target a capability schema (default: jobs.board@1)
     --fields <a,b,c>            Ad-hoc extraction instead of a capability
     --query <text>              Sample query used while validating
+    --from-skill <ref>          Start from published notes about the site:
+                                a browse.sh skill (indeed.com/search-jobs-8yxl6y,
+                                or just indeed.com when it is unambiguous), or a
+                                local markdown file
     --attempts <n>              Compile attempts before giving up (default: 3)
 
   pilot list                    Show installed Pilots and whether they are enabled

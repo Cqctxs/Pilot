@@ -20,6 +20,10 @@ export const PILOT_ERROR_CODES = [
   // Registry
   "REGISTRY_NOT_CONFIGURED",
   "REGISTRY_UNAVAILABLE",
+  // Reference notes supplied to a compile (--from-skill)
+  "SKILL_NOT_FOUND",
+  "SKILL_AMBIGUOUS",
+  "SKILL_UNAVAILABLE",
   // Catch-alls
   "INTERNAL_ERROR",
   "NOT_IMPLEMENTED",

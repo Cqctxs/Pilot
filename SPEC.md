@@ -265,6 +265,24 @@ Fields the model notices but cannot extract reliably remain in `discovered` for
 later investigation. This happens only while compiling or repairing; ordinary
 searches never call a model or mutate their schema.
 
+### Starting from published notes
+
+`pilot create <url> --from-skill <ref>` supplies the compiler with prior
+knowledge about the target: a [browse.sh](https://browse.sh) skill
+(`indeed.com/search-jobs-8yxl6y`, or a bare domain when only one matches), or a
+local markdown file. Those notes carry measured query parameters, stable
+selectors and anti-bot behaviour that the explorer would otherwise spend its
+step budget rediscovering.
+
+The notes are reference, never instruction. They were written for a different
+toolchain, possibly months ago, by someone outside this project, and they arrive
+over the network — so they are delimited as data in the prompt and the model is
+told the live page wins any disagreement, that the target schema remains the
+contract, and that nothing inside the markers changes its instructions. The
+resulting Pilot records `compiler.skillSource`, because a script built from a
+prior was not derived from the site alone and a reader deciding whether to trust
+it should be able to see that.
+
 ### Declaring a capability
 
 A capability is an interface, so it can be declared before anything implements

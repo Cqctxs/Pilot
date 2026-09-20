@@ -284,29 +284,45 @@ export function buildServer(env: PilotEnv): McpServer {
         capability: z
           .string()
           .optional()
-          .describe(`Capability schema to target. Currently only ${JOBS_CAPABILITY}.`),
+          .describe(
+            `Capability schema to target, as listed by pilot_fields. Defaults to ${JOBS_CAPABILITY}. ` +
+              "An id nobody has declared yet is a new capability: the schema is designed during this compile.",
+          ),
         query: z.string().optional().describe("Sample search text the script is validated against"),
         location: z.string().optional().describe("Sample location the script is validated against"),
+        fromSkill: z
+          .string()
+          .optional()
+          .describe(
+            "Published notes about this site to start from, which usually cut the compile short: " +
+              "a browse.sh skill id such as 'indeed.com/search-jobs-8yxl6y', or just 'indeed.com' " +
+              "when only one skill matches. The notes are treated as evidence to verify, not as " +
+              "instructions, and the resulting Pilot records where they came from.",
+          ),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    async ({ url, id, name, fields, capability, query, location }, extra) => {
+    async ({ url, id, name, fields, capability, query, location, fromSkill }, extra) => {
       try {
+        const capabilities = new CapabilityRegistry(env);
         let schema: DataSchema;
         let resolvedCapability: string | null;
+        let capabilitySchemaVersion: string | undefined;
         if (fields && fields.length > 0) {
           resolvedCapability = null;
           schema = parseFieldList(fields.join(","));
         } else {
           resolvedCapability = capability ?? JOBS_CAPABILITY;
-          if (resolvedCapability !== JOBS_CAPABILITY) {
-            return text(
-              `Unknown capability "${resolvedCapability}". Known: ${JOBS_CAPABILITY}. ` +
-                `For anything else, pass \`fields\` instead.`,
-              undefined,
-            );
+          const declared = capabilities.find(resolvedCapability);
+          if (declared) {
+            schema = declared.schema;
+            capabilitySchemaVersion = declared.version;
+          } else if (resolvedCapability === JOBS_CAPABILITY) {
+            schema = JOBS_SCHEMA;
+          } else {
+            // Undeclared: the model designs the schema during this compile.
+            schema = { name: resolvedCapability, fields: [] };
           }
-          schema = JOBS_SCHEMA;
         }
 
         const pilotId = id ?? deriveId(url);
@@ -317,12 +333,17 @@ export function buildServer(env: PilotEnv): McpServer {
         // Compiles run for minutes. Stream what the explorer is doing so the
         // client can show progress instead of looking hung.
         const { compile } = await import("../compiler/index.js");
+        const notes = fromSkill
+          ? await (await import("../compiler/skills.js")).fetchSkillNotes(fromSkill)
+          : null;
         const result = await compile({
           url,
           id: pilotId,
           name,
           capability: resolvedCapability,
           schema,
+          capabilitySchemaVersion,
+          notes,
           query: { keywords: query ?? "", location: location ?? "" },
           headless: true,
           env,
@@ -333,6 +354,14 @@ export function buildServer(env: PilotEnv): McpServer {
             }).catch(() => {});
           },
         });
+
+        // A capability designed during this compile has to be persisted, or the
+        // next Pilot for the same id would design a different one.
+        if (resolvedCapability && !capabilitySchemaVersion) {
+          const definition = capabilities.ensure(resolvedCapability, result.pilot.schema);
+          result.pilot.capabilitySchemaVersion = definition.version;
+          result.pilot.schemaExtensions = [];
+        }
 
         const store = new PilotStore(env);
         const dir = store.save(result.pilot, result.code, result.records.slice(0, 10));
