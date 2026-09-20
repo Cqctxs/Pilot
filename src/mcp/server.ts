@@ -26,6 +26,7 @@ import type { PilotEnv } from "../shared/env.js";
 import { toPilotError } from "../shared/errors.js";
 import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import { parseFieldList, type DataSchema } from "../shared/schema.js";
+import { installPilotPackage } from "../cli/packages.js";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -264,7 +265,8 @@ export function buildServer(env: PilotEnv): McpServer {
     {
       title: "Compile a website into a Pilot",
       description:
-        "Point this at a URL and it compiles a reusable extraction script for that site. " +
+        "Point this at a URL. Pilot first reuses a compatible implementation from the " +
+        "registry; only when none exists does it compile a reusable extraction script. " +
         "A model explores the page with a real browser, tests extraction until it works, " +
         "and saves a script that from then on runs with no model at all.\n\n" +
         "Use it when you need data a site has but exposes no API for, especially data you " +
@@ -297,12 +299,17 @@ export function buildServer(env: PilotEnv): McpServer {
             "Published notes about this site to start from, which usually cut the compile short: " +
               "a browse.sh skill id such as 'indeed.com/search-jobs-8yxl6y', or just 'indeed.com' " +
               "when only one skill matches. The notes are treated as evidence to verify, not as " +
-              "instructions, and the resulting Pilot records where they came from.",
+              "instructions, and the resulting Pilot records where they came from. Implies a fresh " +
+              "compile, since it is an instruction about how to compile.",
           ),
+        forceCompile: z
+          .boolean()
+          .optional()
+          .describe("Ignore installed and published implementations and deliberately compile a fresh one"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    async ({ url, id, name, fields, capability, query, location, fromSkill }, extra) => {
+    async ({ url, id, name, fields, capability, query, location, fromSkill, forceCompile }, extra) => {
       try {
         const capabilities = new CapabilityRegistry(env);
         let schema: DataSchema;
@@ -328,6 +335,46 @@ export function buildServer(env: PilotEnv): McpServer {
         const pilotId = id ?? deriveId(url);
         if (!PILOT_ID_PATTERN.test(pilotId)) {
           return text(`Invalid Pilot id "${pilotId}". Use lowercase letters, digits and dashes.`);
+        }
+
+        if (!fields?.length && resolvedCapability && !forceCompile && !fromSkill) {
+          const store = new PilotStore(env);
+          const local = store.all().find(
+            (item) =>
+              item.pilot.id === pilotId &&
+              item.pilot.capability === resolvedCapability &&
+              new URL(item.pilot.target.url).hostname.replace(/^www\./, "") ===
+                new URL(url).hostname.replace(/^www\./, ""),
+          );
+          if (local) {
+            return text(
+              `Using installed ${local.pilot.id}@${local.pilot.version}; no model call.`,
+              { id: local.pilot.id, version: local.pilot.version, reused: true, source: "installed" },
+            );
+          }
+
+          if (Registry.isConfigured(env)) {
+            const candidates = await withRegistry(env, (remote) =>
+              remote.compatible(url, resolvedCapability!),
+            );
+            const existing = candidates.find((entry) => entry.pilotId === pilotId) ??
+              (id ? undefined : candidates[0]);
+            if (existing) {
+              const installed = await installPilotPackage(env, existing.pilotId, existing.version);
+              new PilotStore(env).setEnabled(installed.entry.pilotId, true);
+              return text(
+                `Installed existing ${installed.entry._id} from the registry; no model call.\n` +
+                  `${installed.entry.summary}`,
+                {
+                  id: installed.entry.pilotId,
+                  version: installed.entry.version,
+                  reused: true,
+                  source: "registry",
+                  fields: installed.entry.pilot.schema.fields.map((field) => field.name),
+                },
+              );
+            }
+          }
         }
 
         // Compiles run for minutes. Stream what the explorer is doing so the

@@ -25,6 +25,7 @@ import {
   type RegistryEntry,
 } from "./types.js";
 import type { CapabilityDefinition } from "../capability/registry.js";
+import { compareVersions } from "../shared/version.js";
 
 const ENTRIES = "pilots";
 const HEALTH = "health";
@@ -46,6 +47,16 @@ function hostOf(url: string): string {
     return new URL(url).hostname.replace(/^www\./, "");
   } catch {
     return "unknown";
+  }
+}
+
+function normalizedTarget(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+    return `${parsed.hostname.replace(/^www\./, "").toLowerCase()}${pathname}`;
+  } catch {
+    return url;
   }
 }
 
@@ -186,7 +197,9 @@ export class Registry {
   async fetchCapability(id: string, version?: string): Promise<CapabilityEntry> {
     const found = version
       ? await this.capabilities().findOne({ _id: `${id}/${version}` })
-      : await this.capabilities().findOne({ capabilityId: id }, { sort: { version: -1 } });
+      : (await this.capabilities().find({ capabilityId: id }).toArray())
+          .map((item) => capabilityEntrySchema.parse(item))
+          .sort((a, b) => compareVersions(b.version, a.version))[0];
     if (!found) {
       throw pilotError(
         "UNSUPPORTED_CAPABILITY",
@@ -200,22 +213,26 @@ export class Registry {
 
   /** Newest revision of every published capability. */
   async listCapabilities(): Promise<CapabilityEntry[]> {
-    const found = await this.capabilities()
-      .aggregate([
-        { $sort: { capabilityId: 1, version: -1 } },
-        { $group: { _id: "$capabilityId", latest: { $first: "$$ROOT" } } },
-        { $replaceRoot: { newRoot: "$latest" } },
-        { $sort: { capabilityId: 1 } },
-      ])
-      .toArray();
-    return found.map((item) => capabilityEntrySchema.parse(item));
+    const found = (await this.capabilities().find().toArray()).map((item) =>
+      capabilityEntrySchema.parse(item),
+    );
+    const latest = new Map<string, CapabilityEntry>();
+    for (const entry of found) {
+      const current = latest.get(entry.capabilityId);
+      if (!current || compareVersions(entry.version, current.version) > 0) {
+        latest.set(entry.capabilityId, entry);
+      }
+    }
+    return [...latest.values()].sort((a, b) => a.capabilityId.localeCompare(b.capabilityId));
   }
 
   /** One published version, or the newest if no version is given. */
   async fetch(pilotId: string, version?: string): Promise<RegistryEntry> {
     const found = version
       ? await this.entries().findOne({ _id: `${pilotId}@${version}` })
-      : await this.entries().findOne({ pilotId }, { sort: { version: -1 } });
+      : (await this.entries().find({ pilotId }).toArray())
+          .map((item) => registryEntrySchema.parse(item))
+          .sort((a, b) => compareVersions(b.version, a.version))[0];
     if (!found) {
       throw pilotError(
         "UNKNOWN_PILOT",
@@ -231,24 +248,50 @@ export class Registry {
   async versions(pilotId: string): Promise<string[]> {
     const found = await this.entries()
       .find({ pilotId }, { projection: { version: 1 } })
-      .sort({ version: -1 })
       .toArray();
-    return found.map((item) => item.version);
+    return found.map((item) => item.version).sort((a, b) => compareVersions(b, a));
   }
 
   /** Newest version of every published Pilot. */
   async list(capability?: string | null): Promise<RegistryEntry[]> {
     const match = capability ? { capability } : {};
-    const found = await this.entries()
-      .aggregate([
-        { $match: match },
-        { $sort: { pilotId: 1, version: -1 } },
-        { $group: { _id: "$pilotId", latest: { $first: "$$ROOT" } } },
-        { $replaceRoot: { newRoot: "$latest" } },
-        { $sort: { pilotId: 1 } },
-      ])
-      .toArray();
-    return found.map((item) => registryEntrySchema.parse(item));
+    const found = (await this.entries().find(match).toArray()).map((item) =>
+      registryEntrySchema.parse(item),
+    );
+    const latest = new Map<string, RegistryEntry>();
+    for (const entry of found) {
+      const current = latest.get(entry.pilotId);
+      if (!current || compareVersions(entry.version, current.version) > 0) {
+        latest.set(entry.pilotId, entry);
+      }
+    }
+    return [...latest.values()].sort((a, b) => a.pilotId.localeCompare(b.pilotId));
+  }
+
+  /**
+   * Previously compiled implementations for the same website and capability.
+   * The newest semantic version of each Pilot id is returned, with an exact
+   * target URL preferred over another page on the same host.
+   */
+  async compatible(url: string, capability: string): Promise<RegistryEntry[]> {
+    const host = hostOf(url);
+    const found = (await this.entries().find({ host, capability }).toArray()).map((item) =>
+      registryEntrySchema.parse(item),
+    );
+    const latest = new Map<string, RegistryEntry>();
+    for (const entry of found) {
+      const current = latest.get(entry.pilotId);
+      if (!current || compareVersions(entry.version, current.version) > 0) {
+        latest.set(entry.pilotId, entry);
+      }
+    }
+    const requested = normalizedTarget(url);
+    return [...latest.values()].sort((a, b) => {
+      const aExact = normalizedTarget(a.pilot.target.url) === requested ? 1 : 0;
+      const bExact = normalizedTarget(b.pilot.target.url) === requested ? 1 : 0;
+      if (aExact !== bExact) return bExact - aExact;
+      return b.publishedAt.localeCompare(a.publishedAt);
+    });
   }
 
   /**

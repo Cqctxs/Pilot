@@ -391,7 +391,7 @@ are enabled, separately from the artifacts, so enabling one never rewrites it.
 ## 7. CLI
 
 ```text
-pilot create <url> [--id x] [--name x] [--capability function.type@1] [--fields a,b,c]
+pilot create <url> [--id x] [--name x] [--capability function.type@1] [--fields a,b,c] [--compile]
                    [--query text] [--location text] [--attempts n] [--steps n] [--watch]
 pilot list [capability] [--json]  # no capability: installed; capability: published
 pilot capabilities [--json]
@@ -409,7 +409,11 @@ pilot repair <id> [--failure text]
 pilot testboard [--port n] [--layout a|b]
 
 pilot publish <id>
-pilot install <id>[@version]
+pilot install [<id>[@version]]  # no id restores exact versions from pilot.lock.json
+pilot outdated [ids...] [--json]
+pilot update [ids...] [--json]
+pilot uninstall <ids...> [--json]
+pilot lock [--json]
 pilot registry list | search <text> | versions <id> | health [id]
                           [--capability x] [--limit n] [--json]
 pilot mcp

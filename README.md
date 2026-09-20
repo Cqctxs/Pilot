@@ -114,11 +114,12 @@ npm run pilot -- search linkedin talent --keywords intern --type internship
 ### Commands
 
 ```text
-pilot create <url>            Compile a Pilot from a live site
+pilot create <url>            Reuse a registry match, or compile from the live site
   --capability <id>           Shared function type, e.g. hotels.search@1
   --fields name,price,url     Seed a new capability, or extract ad-hoc fields
   --query / --location        Values the script is validated against
   --watch                     Show the browser while it explores
+  --compile                   Force fresh AI compilation even when a match exists
 pilot list                    Installed Pilots and whether they are enabled
 pilot list <capability>       Published Pilots for that function type
 pilot capabilities            Shared schemas and their versions
@@ -133,7 +134,11 @@ pilot repair <id>             Recompile a Pilot whose site changed
 pilot testboard               Serve the local board (--layout a|b)
 
 pilot publish <id>            Push a compiled Pilot to the registry
-pilot install <id>[@version]  Install one from the registry
+pilot install [id@version]    Install one, or restore everything in pilot.lock.json
+pilot outdated [ids...]       Compare installed versions with the registry
+pilot update [ids...]         Install newer published versions
+pilot uninstall <ids...>      Remove local Pilot versions and configuration
+pilot lock                    Snapshot installed versions into pilot.lock.json
 pilot registry list           Every published Pilot
 pilot registry search <text>  Find one by site, capability, or field
 pilot registry health [id]    Success rate per Pilot, worst first
@@ -153,8 +158,20 @@ pilot list jobs.board@1
 pilot install linkedin
 ```
 
+`pilot install <id>` and `pilot update` maintain `pilot.lock.json`. Commit that
+file with the project. After cloning, another developer runs bare `pilot install`
+to fetch the same exact Pilot versions and their capability definitions. Use
+`pilot lock` once to capture Pilots that were already present before the lockfile
+was introduced.
+
 For a brand-new capability, `--fields` is optional. If omitted, the compiler
 must propose and validate the initial shared schema before anything is saved.
+
+For capability-based creation, Pilot checks the registry by website hostname
+and capability before starting the compiler. A compatible published Pilot is
+installed directly, with no model call. Ad-hoc `--fields` requests compile
+because a registry artifact may not provide the requested shape; `--compile`
+also deliberately bypasses reuse.
 
 ---
 
