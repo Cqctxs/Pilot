@@ -9,7 +9,7 @@ const run = spawnSync(
     "--keywords",
     "software engineer",
     "--location",
-    "Boston",
+    "Massachusetts",
     "--limit",
     "2",
   ],

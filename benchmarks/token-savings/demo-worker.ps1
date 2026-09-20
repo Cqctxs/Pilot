@@ -276,11 +276,11 @@ try {
   Set-Location $Workspace
   Write-Host "This is now an interactive shell in $Workspace" -ForegroundColor Cyan
   Write-Host "Try the generated application:" -ForegroundColor Cyan
-  Write-Host '  node src/search.mjs --keywords "software engineer" --location Boston --limit 2'
+  Write-Host '  node src/search.mjs --keywords "software engineer" --location Massachusetts --limit 2'
   Write-Host "  npm test"
   if ($Kind -eq "pilot") {
     Write-Host "Or call the installed Pilots directly:" -ForegroundColor Cyan
-    Write-Host '  npx pilot search linkedin ziprecruiter talent --keywords "software engineer" --location Boston --limit 2'
+    Write-Host '  npx pilot search linkedin ziprecruiter talent --keywords "software engineer" --location Massachusetts --limit 2'
     Write-Host '  npx pilot search linkedin --keywords "machine learning" --location Toronto --limit 3'
   }
   Write-Host ""

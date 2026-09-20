@@ -87,13 +87,13 @@ show live jobs from the installed Pilots.
 Preview the setup without changing anything:
 
 ```powershell
-npm run demo:tokens:visible -- -WhatIf
+npm run demo -- -WhatIf
 ```
 
 Run it:
 
 ```powershell
-npm run demo:tokens:visible
+npm run demo
 ```
 
 The live version is presentation evidence, not the controlled benchmark:
