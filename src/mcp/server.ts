@@ -115,6 +115,66 @@ export function buildServer(env: PilotEnv): McpServer {
   );
 
   server.registerTool(
+    "pilot_capabilities",
+    {
+      title: "List the interfaces available, with their contracts",
+      description:
+        "Show the capabilities on this machine — the interfaces application code is " +
+        "written against — with every field, its type, and whether it is guaranteed. " +
+        "pilot_list says which sites can be asked; this says what the answers look " +
+        "like. Read this before writing code that consumes a search result: a field " +
+        "marked required is present on every record, and the rest may be absent.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        const registry = new CapabilityRegistry(env);
+        const pilots = new PilotStore(env).all();
+        const capabilities = registry.all().map((definition) => ({
+          id: definition.id,
+          schemaVersion: definition.version,
+          fields: definition.schema.fields.map((field) => ({
+            name: field.name,
+            type: field.type,
+            required: field.required,
+            description: field.description,
+          })),
+          implementedBy: pilots
+            .filter(
+              (item) =>
+                canonicalCapability(item.pilot.capability) ===
+                canonicalCapability(definition.id),
+            )
+            .map((item) => item.pilot.id),
+        }));
+        if (capabilities.length === 0) {
+          return text(
+            "No capabilities declared. Declare one with pilot_create, or compile a " +
+              "site and one will be designed from what it returns.",
+          );
+        }
+        const lines = capabilities.map((capability) => {
+          const fields = capability.fields
+            .map((field) => `    ${field.name}${field.required ? "*" : ""} (${field.type}): ${field.description}`)
+            .join("\n");
+          const implementers =
+            capability.implementedBy.length > 0
+              ? capability.implementedBy.join(", ")
+              : "nothing yet — compile one with pilot_create";
+          return `${capability.id}  implemented by: ${implementers}\n${fields}`;
+        });
+        return text(
+          `${lines.join("\n\n")}\n\n* = always present. Others may be missing on any record.`,
+          { capabilities },
+        );
+      } catch (cause) {
+        return failure(cause);
+      }
+    },
+  );
+
+  server.registerTool(
     "pilot_fields",
     {
       title: "Show which fields the Pilots return",

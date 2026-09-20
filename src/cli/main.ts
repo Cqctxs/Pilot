@@ -9,6 +9,7 @@ import { runSearch } from "./search.js";
 import { runRepair } from "./repair.js";
 import { runCapabilities } from "./capabilities.js";
 import { runFields } from "./fields.js";
+import { runInit } from "./init.js";
 
 const HELP = `Pilot — compile any website into a reusable data API.
 
@@ -54,6 +55,8 @@ KEEP WORKING
   pilot enable|disable <pilot>  Include or exclude from unqualified searches
   pilot lock                    Snapshot versions into pilot.lock.json
 
+  pilot init                    Let this project's coding agent see your Pilots
+                                (writes .mcp.json + a CLAUDE.md note)
   pilot mcp                     Serve Pilot over MCP to Claude Code or Codex
   pilot help --all              Everything, including the older spellings
 
@@ -103,6 +106,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     "describe", "url", "from", "dry-run", "json",
   ],
   list: ["json", "remote"],
+  init: ["force"],
   ls: ["json", "remote"],
   show: ["json"],
   rm: ["json", "force"],
@@ -152,6 +156,8 @@ async function main(): Promise<number> {
       }
       return runCreate(env, args);
     }
+    case "init":
+      return runInit(env, args);
     case "ls":
     case "list": {
       const target = args.positional[0];

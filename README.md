@@ -185,8 +185,13 @@ no API compiles a Pilot **once**, and from then on it — and every other agent 
 the team — has a tool that costs no tokens to run.
 
 ```bash
-pilot mcp     # stdio MCP server
+pilot init    # writes .mcp.json + a CLAUDE.md note, in any project
+pilot mcp     # the stdio MCP server it points at
 ```
+
+In a project that depends on Pilot, `pilot init` is the whole setup. The agent
+then reads `pilot_capabilities` for the interface and `pilot_list` for the sites,
+and calls `pilot_search` instead of writing a scraper.
 
 Claude Code picks up the `.mcp.json` in this repo automatically. For Codex, in
 `~/.codex/config.toml`:

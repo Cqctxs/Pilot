@@ -111,6 +111,7 @@ describe("handshake", () => {
   it("advertises the full tool surface", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "pilot_capabilities",
       "pilot_create",
       "pilot_fields",
       "pilot_health",
