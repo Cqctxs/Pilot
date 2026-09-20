@@ -30,8 +30,10 @@ const HELP = `Pilot — compile any website into a reusable data API.
   pilot capabilities            Show shared function types and schema versions
   pilot capabilities show <id>  One capability, field by field
   pilot capabilities add <id>   Declare a capability before any Pilot implements it
+    --describe <text>           Design the fields from a plain description
     --fields <a,b,c>            name[:type][!][=description], ! marks required
     --from <file.json>          Field definitions from a file instead
+    --dry-run                   Show the shape without declaring it
   pilot capabilities publish <id>  Share the interface through the registry
   pilot capabilities install <id>  Take someone else's interface (--force to replace)
   pilot fields [targets...]     Which fields the selected Pilots return, and how
@@ -87,7 +89,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     "attempts", "steps", "compile", "watch",
   ],
   list: ["json"],
-  capabilities: ["fields", "from", "force", "json"],
+  capabilities: ["fields", "from", "describe", "dry-run", "force", "json"],
   fields: ["json"],
   enable: [],
   disable: [],

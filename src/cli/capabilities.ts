@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { CapabilityRegistry } from "../capability/registry.js";
+import { CapabilityRegistry, type CapabilityDefinition } from "../capability/registry.js";
 import { dataSchemaSchema, fieldSpecSchema, type DataSchema, type FieldSpec } from "../shared/schema.js";
 import type { PilotEnv } from "../shared/env.js";
 import { pilotError } from "../shared/errors.js";
@@ -67,7 +67,7 @@ export async function runCapabilities(env: PilotEnv, args: ParsedArgs): Promise<
   const [subcommand, ...rest] = args.positional;
   const registry = new CapabilityRegistry(env);
 
-  if (subcommand === "add") return add(registry, rest[0], args);
+  if (subcommand === "add") return add(env, registry, rest[0], args);
   if (subcommand === "show") return show(registry, rest[0], args);
   if (subcommand === "publish") return publish(env, registry, rest[0]);
   if (subcommand === "install") return install(env, registry, rest[0], args);
@@ -119,34 +119,117 @@ function show(registry: CapabilityRegistry, id: string | undefined, args: Parsed
   return 0;
 }
 
-function add(registry: CapabilityRegistry, id: string | undefined, args: ParsedArgs): number {
+async function add(
+  env: PilotEnv,
+  registry: CapabilityRegistry,
+  id: string | undefined,
+  args: ParsedArgs,
+): Promise<number> {
   if (!id) {
     process.stderr.write(
-      "Usage: pilot capabilities add <id> --fields <a,b,c>\n" +
+      "Usage: pilot capabilities add <id> --describe <text>\n" +
+        "       pilot capabilities add <id> --fields <a,b,c>\n" +
         "       pilot capabilities add <id> --from <file.json>\n",
     );
     return 1;
   }
   const from = flagString(args, "from");
   const fields = flagString(args, "fields");
-  if (!from && !fields) {
-    process.stderr.write("pilot capabilities add needs --fields or --from\n");
+  const describe = flagString(args, "describe");
+  if (!from && !fields && !describe) {
+    process.stderr.write("pilot capabilities add needs --describe, --fields or --from\n");
     return 1;
   }
 
-  const schema: DataSchema = from
-    ? schemaFromFile(from, id)
-    : dataSchemaSchema.parse({ name: id, fields: parseCapabilityFields(fields!) });
+  let schema: DataSchema;
+  let rationale: string | null = null;
+  if (describe) {
+    // The only path here that costs a model call, so say so before spending it.
+    process.stderr.write(`  designing ${id} from your description\n`);
+    const { designCapability } = await import("../compiler/design.js");
+    const designed = await designCapability({ id, description: describe, env });
+    schema = dataSchemaSchema.parse({ name: id, fields: designed.fields });
+    rationale = designed.rationale;
+  } else if (from) {
+    schema = schemaFromFile(from, id);
+  } else {
+    schema = dataSchemaSchema.parse({ name: id, fields: parseCapabilityFields(fields!) });
+  }
+
+  // Proposed, not saved. A capability's shape is a contract every future Pilot
+  // compiles against, so a generated one is worth reading before it becomes one.
+  if (args.flags["dry-run"] === true) {
+    // JSON rather than a --fields string: generated descriptions are full
+    // sentences and routinely contain commas, which the --fields DSL splits on.
+    // A file is also the thing you would want to edit before committing to it.
+    if (args.flags.json) {
+      process.stdout.write(`${JSON.stringify(schema, null, 2)}\n`);
+      return 0;
+    }
+    process.stdout.write(
+      `Proposed ${id} (nothing written)\n` +
+        schema.fields
+          .map((field) => `  ${field.name}${field.required ? "*" : ""} (${field.type}): ${field.description}\n`)
+          .join("") +
+        (rationale ? `\n  ${rationale}\n` : "") +
+        `\nKeep it:     pilot capabilities add ${id} --describe "..."\n` +
+        `Edit first:  pilot capabilities add ${id} --describe "..." --dry-run --json > ${id}.json\n` +
+        `             pilot capabilities add ${id} --from ${id}.json\n`,
+    );
+    return 0;
+  }
 
   const definition = registry.define(id, schema);
+  const overlap = describeOverlap(registry, definition);
   process.stdout.write(
     `Declared ${definition.id} at schema ${definition.version}\n` +
       definition.schema.fields
         .map((field) => `  ${field.name}${field.required ? "*" : ""} (${field.type}): ${field.description}\n`)
         .join("") +
+      (rationale ? `\n  ${rationale}\n` : "") +
+      (overlap ? `\n${overlap}\n` : "") +
       `\nCompile against it:  pilot create <url> --capability ${definition.id}\n`,
   );
   return 0;
+}
+
+
+/**
+ * Say so when a new capability looks like one that already exists.
+ *
+ * Two ids with the same shape are two standards for one thing, and the second
+ * one is usually a mistake — most often a value baked into a name, like a
+ * hotels capability for a single city when the city belongs in the query. This
+ * only reports; merging someone's contract is not the registry's call, and a
+ * genuine near-twin (flights vs trains) is a normal thing to declare.
+ */
+function describeOverlap(
+  registry: CapabilityRegistry,
+  declared: CapabilityDefinition,
+): string | null {
+  const mine = new Set(declared.schema.fields.map((field) => field.name));
+  const lines: string[] = [];
+  for (const other of registry.all()) {
+    if (other.id === declared.id) continue;
+    const theirs = new Set(other.schema.fields.map((field) => field.name));
+    const shared = [...mine].filter((name) => theirs.has(name));
+    if (shared.length === 0) continue;
+    const union = new Set([...mine, ...theirs]).size;
+    const overlap = shared.length / union;
+    if (mine.size <= theirs.size && shared.length === mine.size) {
+      lines.push(`  Every field of ${declared.id} already exists in ${other.id}.`);
+    } else if (overlap >= 0.6) {
+      lines.push(
+        `  ${declared.id} and ${other.id} share ${shared.length} of ${union} fields.`,
+      );
+    }
+  }
+  if (lines.length === 0) return null;
+  return (
+    `${lines.join("\n")}\n` +
+    `  If these are the same function type, prefer the existing one — a value like\n` +
+    `  a city or a date belongs in the query, not in a second capability.`
+  );
 }
 
 async function publish(
