@@ -105,6 +105,28 @@ function splitArgs(args: Array<string | JobQuery>): { targets: string[]; query: 
   return { targets, query };
 }
 
+/**
+ * Round-robin the per-source results instead of concatenating them.
+ *
+ * Concatenation makes the fan-out invisible to anyone who takes a prefix. A
+ * caller doing `jobs.slice(0, 5)` — or paginating, or rendering the first
+ * screenful — gets every record from whichever Pilot happens to be first in
+ * the store, and a four-source search looks like a one-source search. The
+ * per-source counts say otherwise, but the data the caller actually reads does
+ * not. Interleaving makes a prefix a sample of the whole search, which is what
+ * asking several boards at once is for.
+ */
+function interleave<T>(groups: T[][]): T[] {
+  const out: T[] = [];
+  const longest = Math.max(0, ...groups.map((group) => group.length));
+  for (let index = 0; index < longest; index += 1) {
+    for (const group of groups) {
+      if (index < group.length) out.push(group[index]!);
+    }
+  }
+  return out;
+}
+
 export function pilot(env: PilotEnv = loadEnv()): Pilot {
   const store = new PilotStore(env);
 
@@ -131,7 +153,9 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
         // Fan out concurrently; a slow board should not serialize the rest.
         const settled = await Promise.all(selected.map((item) => runOne(item, query)));
 
-        const jobs = dedupeJobs(settled.flatMap((entry) => entry.jobs));
+        // Interleaved before deduping, so a cross-listed posting is credited to
+        // whichever source came back with it first in round-robin order.
+        const jobs = dedupeJobs(interleave(settled.map((entry) => entry.jobs)));
         const fields = [
           ...new Set(selected.flatMap((item) => item.pilot.schema.fields.map((field) => field.name))),
         ];
@@ -202,7 +226,7 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
         const { targets, query } = splitGenericArgs(args);
         const selected = resolveCapabilityTargets(store, targets, id);
         const settled = await Promise.all(selected.map((item) => runGeneric(item, query)));
-        const records = settled.flatMap((entry) => entry.records);
+        const records = interleave(settled.map((entry) => entry.records));
         const fields = [
           ...new Set(selected.flatMap((item) => item.pilot.schema.fields.map((field) => field.name))),
         ];
