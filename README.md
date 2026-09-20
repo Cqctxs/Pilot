@@ -462,16 +462,8 @@ src/
   cli/         thin wrapper over the SDK
   testboard/   local job board for controlled tests
 pilots/        compiled Pilots — plain files, committed
-```
 
 `npm run typecheck` · `npm test` — unit tests plus an end-to-end run of a script
 Pilot against the local board, with no model and no external network.
 
 ---
-
-## A note on targets
-
-Indeed, SimplyHired, Glassdoor and ZipRecruiter all block automated access
-outright — verified, not assumed. LinkedIn and Talent.com both work. Pilot reads
-only, keeps volume low, identifies itself honestly, and does not work around
-anti-bot measures. See [SPEC.md](SPEC.md) §13.
