@@ -4,27 +4,18 @@
  * There is no registry service and no database. Loading is a directory scan,
  * publishing is a commit, and inspecting a Pilot is `cat`.
  */
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import { parsePilot, pilotConfigFileSchema, type Pilot, type PilotConfig } from "../shared/pilot.js";
 import { pilotError } from "../shared/errors.js";
 import { loadEnv, type PilotEnv } from "../shared/env.js";
 import type { RawRecord } from "../shared/schema.js";
+import { compareVersions } from "../shared/version.js";
 
 export interface LoadedPilot {
   pilot: Pilot;
   config: PilotConfig;
   dir: string;
-}
-
-function compareVersions(a: string, b: string): number {
-  const left = a.split(".").map(Number);
-  const right = b.split(".").map(Number);
-  for (let i = 0; i < 3; i += 1) {
-    const diff = (left[i] ?? 0) - (right[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 export class PilotStore {
@@ -142,6 +133,21 @@ export class PilotStore {
     }
     this.writeConfig(configs);
     this.reload();
+  }
+
+  /** Remove every installed version of one Pilot and its local configuration. */
+  remove(id: string): string {
+    const loaded = this.get(id);
+    const root = path.resolve(this.env.pilotsDir);
+    const target = path.resolve(root, loaded.pilot.id);
+    if (path.dirname(target) !== root) {
+      throw pilotError("INVALID_ARGUMENT", `Refusing to remove Pilot outside ${root}`);
+    }
+
+    rmSync(target, { recursive: true, force: false });
+    this.writeConfig(this.readConfig().filter((item) => item.id !== loaded.pilot.id));
+    this.reload();
+    return target;
   }
 
   private readConfig(): PilotConfig[] {

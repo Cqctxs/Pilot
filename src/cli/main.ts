@@ -11,13 +11,14 @@ import { runFields } from "./fields.js";
 
 const HELP = `Pilot — compile any website into a reusable data API.
 
-  pilot create <url>            Compile a new Pilot from a live site
+  pilot create <url>            Reuse a published Pilot, or compile when missing
     --id <name>                 Pilot id (default: derived from the hostname)
     --name <label>              Human-readable target name
     --capability <id>           Target a capability schema (default: jobs.board@1)
     --fields <a,b,c>            Ad-hoc extraction instead of a capability
     --query <text>              Sample query used while validating
     --attempts <n>              Compile attempts before giving up (default: 3)
+    --compile                   Ignore registry matches and force a fresh compile
 
   pilot list                    Show installed Pilots and whether they are enabled
   pilot list <capability>       Show every published Pilot for a function type
@@ -48,7 +49,11 @@ const HELP = `Pilot — compile any website into a reusable data API.
   pilot testboard               Serve the local job board used for testing
 
   pilot publish <id>            Push a compiled Pilot to the shared registry
-  pilot install <id>[@version]  Install one from the registry
+  pilot install [id@version]    Install one, or restore pilot.lock.json
+  pilot outdated [ids...]       Compare installed versions with the registry
+  pilot update [ids...]         Install newer published versions (all by default)
+  pilot uninstall <ids...>      Remove every local version of a Pilot
+  pilot lock                    Snapshot installed versions into pilot.lock.json
   pilot registry list           Every published Pilot, newest version
   pilot registry search <text>  Find a Pilot by site, capability, or field
   pilot registry versions <id>  Published versions of one Pilot
@@ -111,6 +116,22 @@ async function main(): Promise<number> {
     case "install": {
       const { runInstall } = await import("./registry.js");
       return runInstall(env, args);
+    }
+    case "outdated": {
+      const { runOutdated } = await import("./packages.js");
+      return runOutdated(env, args);
+    }
+    case "update": {
+      const { runUpdate } = await import("./packages.js");
+      return runUpdate(env, args);
+    }
+    case "uninstall": {
+      const { runUninstall } = await import("./packages.js");
+      return runUninstall(env, args);
+    }
+    case "lock": {
+      const { runLock } = await import("./packages.js");
+      return runLock(env, args);
     }
     case "registry": {
       const { runRegistry } = await import("./registry.js");

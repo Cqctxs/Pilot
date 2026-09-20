@@ -6,6 +6,8 @@ import { parseFieldList, type DataSchema } from "../shared/schema.js";
 import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import type { PilotEnv } from "../shared/env.js";
 import { flagNumber, flagString, type ParsedArgs } from "./args.js";
+import { Registry, withRegistry } from "../registry/client.js";
+import { installPilotPackage } from "./packages.js";
 
 /** `indeed.com` → `indeed`, `www.talent.com` → `talent`. */
 function deriveId(url: string): string {
@@ -59,10 +61,45 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     }
   }
 
-  const id = flagString(args, "id") ?? deriveId(url);
+  const requestedId = flagString(args, "id");
+  const id = requestedId ?? deriveId(url);
   if (!PILOT_ID_PATTERN.test(id)) {
     process.stderr.write(`Invalid Pilot id "${id}". Use lowercase letters, digits and dashes.\n`);
     return 1;
+  }
+
+  const store = new PilotStore(env);
+  if (!fields && capability && args.flags.compile !== true) {
+    const local = store.all().find(
+      (item) =>
+        item.pilot.id === id &&
+        item.pilot.capability === capability &&
+        new URL(item.pilot.target.url).hostname.replace(/^www\./, "") ===
+          new URL(url).hostname.replace(/^www\./, ""),
+    );
+    if (local) {
+      process.stdout.write(
+        `Using installed ${local.pilot.id}@${local.pilot.version} for ${capability}; no model call.\n`,
+      );
+      return 0;
+    }
+
+    if (Registry.isConfigured(env)) {
+      const candidates = await withRegistry(env, (remote) => remote.compatible(url, capability!));
+      const existing = candidates.find((entry) => entry.pilotId === id) ??
+        (requestedId ? undefined : candidates[0]);
+      if (existing) {
+        const installed = await installPilotPackage(env, existing.pilotId, existing.version);
+        new PilotStore(env).setEnabled(installed.entry.pilotId, true);
+        process.stdout.write(
+          `Installed existing ${installed.entry._id} from the registry for ${capability}; no model call.\n` +
+            `  ${installed.entry.summary}\n` +
+            `  ${installed.dir}\n\n` +
+            `Try it:  pilot search ${installed.entry.pilotId}\n`,
+        );
+        return 0;
+      }
+    }
   }
 
   const result = await compile({
@@ -91,7 +128,6 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     result.pilot.schemaExtensions = [];
   }
 
-  const store = new PilotStore(env);
   const dir = store.save(result.pilot, result.code, result.records.slice(0, 10));
   store.setEnabled(id, true);
   const promotion = capability

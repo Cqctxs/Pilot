@@ -5,11 +5,18 @@
  * driver, indexes and aggregation pipeline, and to do it without a network or
  * a shared database that other people are publishing into.
  */
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { runList } from "../../src/cli/list.js";
+import { runOutdated, runUninstall, runUpdate } from "../../src/cli/packages.js";
+import { runCreate } from "../../src/cli/create.js";
+import { parseArgs } from "../../src/cli/args.js";
+import { runInstall } from "../../src/cli/registry.js";
+import { PilotLock } from "../../src/packages/lock.js";
+import { PilotStore } from "../../src/pilots/store.js";
 import { Registry } from "../../src/registry/client.js";
 import { findProjectRoot, loadEnv, type PilotEnv } from "../../src/shared/env.js";
 import { parsePilot, type Pilot } from "../../src/shared/pilot.js";
@@ -27,10 +34,22 @@ function fixture(): { pilot: Pilot; code: string } {
 let mongo: MongoMemoryServer;
 let env: PilotEnv;
 let registry: Registry;
+let tempRoot: string;
 
 beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
-  env = { ...loadEnv(), registryUri: mongo.getUri(), registryDb: "pilot_test", publisher: "tester" };
+  tempRoot = mkdtempSync(path.join(tmpdir(), "pilot-packages-"));
+  env = {
+    ...loadEnv(),
+    projectRoot: tempRoot,
+    pilotsDir: path.join(tempRoot, "pilots"),
+    configFile: path.join(tempRoot, "config", "pilots.json"),
+    lockFile: path.join(tempRoot, "pilot.lock.json"),
+    capabilitiesDir: path.join(tempRoot, "config", "capabilities"),
+    registryUri: mongo.getUri(),
+    registryDb: "pilot_test",
+    publisher: "tester",
+  };
   registry = await Registry.connect(env);
 // A fresh machine may need to download the MongoDB test binary once.
 }, 600_000);
@@ -38,6 +57,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await registry?.close();
   await mongo?.stop();
+  rmSync(tempRoot, { recursive: true, force: true });
 });
 
 describe("publishing", () => {
@@ -216,5 +236,94 @@ describe("capabilities", () => {
 
   it("says so plainly when a capability is not published", async () => {
     await expect(registry.fetchCapability("nope.search@1")).rejects.toThrow(/no capability named/);
+  });
+});
+
+describe("package lifecycle", () => {
+  it("detects, installs and removes a newer semantic version", async () => {
+    const { pilot, code } = fixture();
+    const local = {
+      ...pilot,
+      id: "updateboard",
+      version: "1.9.0",
+      capability: null,
+      capabilitySchemaVersion: null,
+    };
+    const latest = { ...local, version: "1.10.0" };
+    const store = new PilotStore(env);
+    store.save(local, code);
+    await registry.publish({ pilot: local, code });
+    await registry.publish({ pilot: latest, code: `${code}\n// 1.10.0\n` });
+
+    const writes: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      expect((await registry.fetch("updateboard")).version).toBe("1.10.0");
+      expect(await runOutdated(env, { positional: ["updateboard"], flags: { json: true } })).toBe(0);
+      const status = JSON.parse(writes.splice(0).join("")) as Array<{ status: string }>;
+      expect(status[0]?.status).toBe("outdated");
+
+      expect(await runUpdate(env, { positional: ["updateboard"], flags: { json: true } })).toBe(0);
+      writes.splice(0);
+      store.reload();
+      expect(store.get("updateboard").pilot.version).toBe("1.10.0");
+      expect(store.readScript("updateboard")).toContain("// 1.10.0");
+      expect(JSON.parse(readFileSync(env.lockFile, "utf8")).pilots).toContainEqual({
+        id: "updateboard",
+        version: "1.10.0",
+        capability: null,
+      });
+
+      expect(await runUninstall(env, { positional: ["updateboard"], flags: { json: true } })).toBe(0);
+      store.reload();
+      expect(() => store.get("updateboard")).toThrow(/No Pilot named/);
+      expect(JSON.parse(readFileSync(env.lockFile, "utf8")).pilots).not.toContainEqual(
+        expect.objectContaining({ id: "updateboard" }),
+      );
+
+      new PilotLock(env).set(latest);
+      expect(await runInstall(env, { positional: [], flags: {} })).toBe(0);
+      store.reload();
+      expect(store.get("updateboard").pilot.version).toBe("1.10.0");
+      expect(await runUninstall(env, { positional: ["updateboard"], flags: { json: true } })).toBe(0);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("reuses a compatible registry implementation before creating a model client", async () => {
+    const { pilot, code } = fixture();
+    const published = {
+      ...pilot,
+      id: "reuseboard",
+      target: { name: "Reuse Board", url: "https://reuse.example/jobs?q=engineer" },
+    };
+    await registry.publish({ pilot: published, code });
+
+    const writes: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      const exitCode = await runCreate(
+        { ...env, openaiApiKey: null, compilerModel: null },
+        parseArgs([
+          "https://reuse.example/jobs?q=designer",
+          "--id",
+          "reuseboard",
+          "--capability",
+          "jobs.board@1",
+        ]),
+      );
+      expect(exitCode).toBe(0);
+      expect(writes.join("")).toMatch(/no model call/i);
+      expect(new PilotStore(env).get("reuseboard").pilot.version).toBe(published.version);
+    } finally {
+      write.mockRestore();
+    }
   });
 });

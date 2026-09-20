@@ -35,6 +35,8 @@ export interface PilotEnv {
   pilotsDir: string;
   /** Which Pilots are enabled, and their bound variables. */
   configFile: string;
+  /** Exact registry versions required to reproduce this project's installed Pilots. */
+  lockFile: string;
   /** Versioned shared schemas that Pilots of the same capability build on. */
   capabilitiesDir: string;
   /** Compiler only. Running a compiled Pilot never needs a key. */
@@ -76,6 +78,7 @@ export function loadEnv(): PilotEnv {
     projectRoot,
     pilotsDir: path.resolve(projectRoot, envString("PILOT_PILOTS_DIR", "pilots")),
     configFile: path.resolve(projectRoot, envString("PILOT_CONFIG", "config/pilots.json")),
+    lockFile: path.resolve(projectRoot, envString("PILOT_LOCK_FILE", "pilot.lock.json")),
     capabilitiesDir: path.resolve(
       projectRoot,
       envString("PILOT_CAPABILITIES_DIR", "config/capabilities"),

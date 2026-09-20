@@ -15,6 +15,8 @@ import type { RegistryEntry } from "../registry/types.js";
 import type { PilotEnv } from "../shared/env.js";
 import { pilotError } from "../shared/errors.js";
 import { flagNumber, flagString, type ParsedArgs } from "./args.js";
+import { installPilotPackage } from "./packages.js";
+import { PilotLock } from "../packages/lock.js";
 
 /** `name`, or `name@1.2.0`. */
 function splitRef(ref: string): { id: string; version?: string } {
@@ -77,34 +79,33 @@ export async function runPublish(env: PilotEnv, args: ParsedArgs): Promise<numbe
 export async function runInstall(env: PilotEnv, args: ParsedArgs): Promise<number> {
   const ref = args.positional[0];
   if (!ref) {
-    process.stderr.write("Usage: pilot install <id>[@version]\n");
+    const required = new PilotLock(env).all();
+    if (required.length === 0) {
+      process.stdout.write(
+        `No locked Pilots found in ${path.relative(env.projectRoot, env.lockFile)}.\n` +
+          "Install one with `pilot install <id>`, or snapshot local Pilots with `pilot lock`.\n",
+      );
+      return 0;
+    }
+    for (const item of required) {
+      const restored = await installPilotPackage(env, item.id, item.version);
+      process.stdout.write(`Installed ${restored.entry._id} from ${restored.entry.publisher}\n`);
+    }
+    process.stdout.write(`Restored ${required.length} locked Pilot${required.length === 1 ? "" : "s"}.\n`);
+    return 0;
+  }
+  if (args.positional.length > 1) {
+    process.stderr.write("Usage: pilot install [<id>[@version]]\n");
     return 1;
   }
   const { id, version } = splitRef(ref);
-
-  const capabilities = new CapabilityRegistry(env);
-  const fetched = await withRegistry(env, async (registry) => {
-    const found = await registry.fetch(id, version);
-    const needed = found.pilot.capability;
-    // Only when it is missing locally. A definition already on this machine may
-    // have been promoted further than the publisher's, and rewinding it would
-    // change what every local Pilot's capabilitySchemaVersion points at.
-    if (!needed || capabilities.find(needed)) return { entry: found, capability: null };
-    const definition = await registry
-      .fetchCapability(needed, found.pilot.capabilitySchemaVersion ?? undefined)
-      .catch(() => null);
-    if (definition) capabilities.save(definition.definition);
-    return { entry: found, capability: definition };
-  });
-
-  const entry = fetched.entry;
-  const store = new PilotStore(env);
-  const dir = store.save(entry.pilot, entry.code, entry.sample ?? undefined);
+  const installed = await installPilotPackage(env, id, version);
+  const entry = installed.entry;
 
   process.stdout.write(
-    `Installed ${entry._id} from ${entry.publisher} into ${path.relative(env.projectRoot, dir)}\n` +
+    `Installed ${entry._id} from ${entry.publisher} into ${path.relative(env.projectRoot, installed.dir)}\n` +
       `  ${entry.summary}\n` +
-      (fetched.capability ? `  with capability ${fetched.capability._id}\n` : "") +
+      (installed.capability ? `  with capability ${installed.capability._id}\n` : "") +
       `  This is generated code that runs unsandboxed. Read ${entry.pilot.artifact.entry} before trusting it.\n`,
   );
   return 0;
