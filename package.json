@@ -4,6 +4,25 @@
   "private": true,
   "description": "Compile any website into a reusable data API",
   "type": "module",
+  "main": "./dist/sdk/index.js",
+  "types": "./dist/sdk/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js"
+    },
+    "./capability/jobs": {
+      "types": "./dist/capability/jobs.d.ts",
+      "import": "./dist/capability/jobs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "config",
+    "README.md",
+    "SPEC.md"
+  ],
   "engines": {
     "node": ">=24.0.0 <25"
   },
