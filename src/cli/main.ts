@@ -19,6 +19,8 @@ const HELP = `Pilot — compile any website into a reusable data API.
     --attempts <n>              Compile attempts before giving up (default: 3)
 
   pilot list                    Show installed Pilots and whether they are enabled
+  pilot list <capability>       Show every published Pilot for a function type
+                               e.g. pilot list jobs.board@1
   pilot capabilities            Show shared function types and schema versions
   pilot enable <id>             Include a Pilot in unqualified searches
   pilot disable <id>            Exclude it

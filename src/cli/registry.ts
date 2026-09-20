@@ -22,7 +22,7 @@ function splitRef(ref: string): { id: string; version?: string } {
   return { id: ref.slice(0, at), version: ref.slice(at + 1) };
 }
 
-function printTable(entries: RegistryEntry[]): void {
+export function printRegistryTable(entries: RegistryEntry[]): void {
   if (entries.length === 0) {
     process.stdout.write("Nothing found.\n");
     return;
@@ -96,7 +96,7 @@ export async function runRegistry(env: PilotEnv, args: ParsedArgs): Promise<numb
         process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
         return 0;
       }
-      printTable(entries);
+      printRegistryTable(entries);
       return 0;
     }
 
@@ -113,7 +113,7 @@ export async function runRegistry(env: PilotEnv, args: ParsedArgs): Promise<numb
         process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
         return 0;
       }
-      printTable(entries);
+      printRegistryTable(entries);
       return 0;
     }
 

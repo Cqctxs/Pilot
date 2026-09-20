@@ -114,6 +114,7 @@ pilot create <url>            Compile a Pilot from a live site
   --query / --location        Values the script is validated against
   --watch                     Show the browser while it explores
 pilot list                    Installed Pilots and whether they are enabled
+pilot list <capability>       Published Pilots for that function type
 pilot capabilities            Shared schemas and their versions
 pilot enable|disable <id>     Include or exclude from unqualified searches
 pilot search [targets...]     --keywords --location --type --limit --filter --json
@@ -128,6 +129,18 @@ pilot registry search <text>  Find one by site, capability, or field
 pilot registry health [id]    Success rate per Pilot, worst first
 
 pilot mcp                     Serve Pilot over MCP to Claude Code / Codex
+```
+
+Build and link the package once during local development to use the commands
+directly instead of routing them through an npm script:
+
+```bash
+npm run build
+npm link
+
+pilot list
+pilot list jobs.board@1
+pilot install linkedin
 ```
 
 For a brand-new capability, `--fields` is optional. If omitted, the compiler

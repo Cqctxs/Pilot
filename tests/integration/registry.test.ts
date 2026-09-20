@@ -8,7 +8,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { MongoMemoryServer } from "mongodb-memory-server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { runList } from "../../src/cli/list.js";
 import { Registry } from "../../src/registry/client.js";
 import { findProjectRoot, loadEnv, type PilotEnv } from "../../src/shared/env.js";
 import { parsePilot, type Pilot } from "../../src/shared/pilot.js";
@@ -94,6 +95,31 @@ describe("search", () => {
 
   it("returns nothing for a term no Pilot mentions", async () => {
     expect(await registry.search("zzzznotathing")).toHaveLength(0);
+  });
+});
+
+describe("package listing", () => {
+  it("lists published Pilots by capability through the top-level command", async () => {
+    const { pilot, code } = fixture();
+    await registry.publish({ pilot, code });
+    const writes: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+
+    try {
+      const exitCode = await runList(env, {
+        positional: [pilot.capability!],
+        flags: { json: true },
+      });
+      expect(exitCode).toBe(0);
+      const listed = JSON.parse(writes.join("")) as Array<{ pilotId: string; capability: string }>;
+      expect(listed.some((entry) => entry.pilotId === pilot.id)).toBe(true);
+      expect(listed.every((entry) => entry.capability === pilot.capability)).toBe(true);
+    } finally {
+      write.mockRestore();
+    }
   });
 });
 

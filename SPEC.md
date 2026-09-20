@@ -324,7 +324,7 @@ are enabled, separately from the artifacts, so enabling one never rewrites it.
 ```text
 pilot create <url> [--id x] [--name x] [--capability function.type@1] [--fields a,b,c]
                    [--query text] [--location text] [--attempts n] [--steps n] [--watch]
-pilot list [--json]
+pilot list [capability] [--json]  # no capability: installed; capability: published
 pilot capabilities [--json]
 pilot enable <id> | pilot disable <id>
 pilot search [targets...] [--keywords x] [--location x] [--type x] [--limit n]
