@@ -10,6 +10,7 @@
  * This writes that file, and a short note for the agent explaining what it is
  * looking at. Both are additive and neither is overwritten without --force.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PilotStore } from "../pilots/store.js";
@@ -77,25 +78,78 @@ export function runInit(env: PilotEnv, args: ParsedArgs): number {
     written.push(".mcp.json");
   }
 
-  const noteFile = path.join(root, "CLAUDE.md");
-  const note = existsSync(noteFile) ? readFileSync(noteFile, "utf8") : "";
-  if (note.includes(NOTE_HEADING) && !force) {
-    skipped.push("CLAUDE.md already mentions Pilot");
-  } else {
+  // CLAUDE.md is Claude Code's; AGENTS.md is what Codex and most other agents
+  // read. The note is the same either way — what a capability is, and that
+  // running a Pilot is free — so write both rather than making the choice of
+  // agent decide whether the project explains itself.
+  for (const name of ["CLAUDE.md", "AGENTS.md"]) {
+    const noteFile = path.join(root, name);
+    const note = existsSync(noteFile) ? readFileSync(noteFile, "utf8") : "";
+    if (note.includes(NOTE_HEADING) && !force) {
+      skipped.push(`${name} already mentions Pilot`);
+      continue;
+    }
     writeFileSync(noteFile, note ? `${note.replace(/\n*$/, "\n")}\n${NOTE}` : NOTE);
-    written.push(note ? "CLAUDE.md (appended)" : "CLAUDE.md");
+    written.push(note ? `${name} (appended)` : name);
   }
+
+  const codex = args.flags.codex === true ? registerWithCodex(force) : describeCodex();
 
   for (const item of written) process.stdout.write(`Wrote ${item}\n`);
   for (const item of skipped) process.stdout.write(`Kept ${item} (--force to replace)\n`);
+  process.stdout.write(`${codex}\n`);
   if (written.length > 0) {
     process.stdout.write(
-      `\nRestart Claude Code in this directory and it will see your Pilots.\n` +
-        `Codex and other MCP clients: point them at \`npx pilot mcp\`.\n`,
+      `\nRestart Claude Code in this directory and it will see your Pilots.\n`,
     );
   }
   process.stdout.write(reportState(env, root));
   return 0;
+}
+
+/** Whether the Codex CLI is here at all, without caring which version. */
+function codexInstalled(): boolean {
+  // shell:true because Windows resolves `codex` to `codex.exe` through PATHEXT,
+  // which bare spawn does not do. Every argument here is a literal.
+  const probe = spawnSync("codex", ["--version"], { encoding: "utf8", shell: true });
+  return !probe.error && probe.status === 0;
+}
+
+/**
+ * Codex keeps MCP servers in `~/.codex/config.toml`, which governs every one of
+ * someone's projects rather than this one. That is not a file `pilot init`
+ * should edit as a side effect of setting up a directory, so it takes a flag —
+ * and `codex mcp add` does the writing, because the format is Codex's business
+ * and hand-rolled TOML merging is how config files get corrupted.
+ */
+function registerWithCodex(force: boolean): string {
+  if (!codexInstalled()) {
+    return "Skipped Codex: the `codex` CLI is not on PATH.";
+  }
+  const existing = spawnSync("codex", ["mcp", "get", SERVER_NAME], {
+    encoding: "utf8",
+    shell: true,
+  });
+  if (existing.status === 0 && !force) {
+    return `Kept Codex's existing "${SERVER_NAME}" server (--force to replace)`;
+  }
+  const added = spawnSync(
+    "codex",
+    ["mcp", "add", SERVER_NAME, "--", "npx", "pilot", "mcp"],
+    { encoding: "utf8", shell: true },
+  );
+  if (added.status !== 0) {
+    const detail = `${added.stderr ?? ""}${added.stdout ?? ""}`.trim().split("\n")[0] ?? "";
+    return `Codex registration failed${detail ? `: ${detail}` : ""}. Run it yourself:\n  codex mcp add ${SERVER_NAME} -- npx pilot mcp`;
+  }
+  return `Registered "${SERVER_NAME}" with Codex (codex mcp add ${SERVER_NAME} -- npx pilot mcp)`;
+}
+
+/** The offer, for the common case where the flag was not passed. */
+function describeCodex(): string {
+  return codexInstalled()
+    ? "Codex found. `pilot init --codex` registers the MCP server with it too."
+    : "Other MCP clients: point them at `npx pilot mcp`.";
 }
 
 /**

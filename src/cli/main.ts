@@ -57,7 +57,7 @@ KEEP WORKING
   pilot lock                    Snapshot versions into pilot.lock.json
 
   pilot init                    Let this project's coding agent see your Pilots
-                                (writes .mcp.json + a CLAUDE.md note)
+                                (.mcp.json + CLAUDE.md/AGENTS.md; --codex for Codex)
   pilot types                   Generate TypeScript for the installed
                                 capabilities, so wrong field names fail to compile
   pilot mcp                     Serve Pilot over MCP to Claude Code or Codex
@@ -79,7 +79,7 @@ const HELP_ALL = `The rest of the surface — everything the short help leaves o
     pilot create --from-skill <ref>   Compile starting from published notes
     pilot search --type <t> --filter <f=v> --param <f=v> --strict-location
     pilot types [--out <file>]    TypeScript for the installed capabilities
-    pilot init [--force]          Set this project up for a coding agent
+    pilot init [--force] [--codex]  Set this project up for a coding agent
     pilot testboard [--layout a|b] [--hostile]  Local board used by the tests
     pilot promptlab [--runs n]    A/B the compiler's system prompts
 `;
@@ -98,7 +98,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     "describe", "url", "from", "dry-run", "json",
   ],
   list: ["json", "remote"],
-  init: ["force"],
+  init: ["force", "codex"],
   types: ["out", "dry-run"],
   ls: ["json", "remote"],
   show: ["json"],

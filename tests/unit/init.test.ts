@@ -74,6 +74,52 @@ describe("pilot init", () => {
     expect(note.split("## Pilot").length - 1).toBe(1);
   });
 
+  /**
+   * Claude Code reads CLAUDE.md and Codex reads AGENTS.md. The note is the
+   * same either way, so which agent someone happens to use should not decide
+   * whether the project explains itself.
+   */
+  it("writes the note for both Claude Code and Codex", () => {
+    const env = project();
+    runInit(env, parseArgs([]));
+    for (const name of ["CLAUDE.md", "AGENTS.md"]) {
+      expect(readFileSync(path.join(env.projectRoot, name), "utf8")).toContain("## Pilot");
+    }
+  });
+
+  it("appends to an existing AGENTS.md too, and only once", () => {
+    const env = project();
+    const file = path.join(env.projectRoot, "AGENTS.md");
+    writeFileSync(file, "# Conventions\n\nPrefer small commits.\n");
+    runInit(env, parseArgs([]));
+    runInit(env, parseArgs([]));
+    const note = readFileSync(file, "utf8");
+    expect(note).toContain("Prefer small commits.");
+    expect(note.split("## Pilot").length - 1).toBe(1);
+  });
+
+  /**
+   * Codex keeps MCP servers in a global config, so registering there is opt-in.
+   * A bare `init` sets up the directory and nothing outside it.
+   */
+  it("does not touch Codex without the flag", () => {
+    const env = project();
+    const lines: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      runInit(env, parseArgs([]));
+    } finally {
+      process.stdout.write = write;
+    }
+    const output = lines.join("");
+    expect(output).not.toContain("Registered");
+    expect(output).toMatch(/--codex|npx pilot mcp/);
+  });
+
   it("refuses to guess at a malformed .mcp.json", () => {
     const env = project();
     writeFileSync(path.join(env.projectRoot, ".mcp.json"), "{ not json");
