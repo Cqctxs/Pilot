@@ -64,3 +64,34 @@ describe("extendDataSchema", () => {
     ).toEqual(["salary"]);
   });
 });
+
+describe("extendDataSchema on a draft capability", () => {
+  const EMPTY: DataSchema = { name: "postings.board@1", fields: [] };
+
+  it("lets a proposal be required only when it is designing the schema", () => {
+    const proposal = [
+      { name: "title", type: "string", description: "The posting title", required: true },
+      { name: "salary", type: "string", description: "Pay range", required: true },
+    ];
+
+    const draft = extendDataSchema(EMPTY, proposal);
+    expect(draft.added.map((field) => [field.name, field.required])).toEqual([
+      ["title", true],
+      ["salary", true],
+    ]);
+
+    // The same proposal against an existing capability: every other Pilot
+    // already implements that interface without these, so requiring them would
+    // retroactively break them.
+    const existing = extendDataSchema(BASE, proposal);
+    expect(existing.added.every((field) => field.required === false)).toBe(true);
+  });
+
+  it("ignores a missing or non-boolean required flag", () => {
+    const result = extendDataSchema(EMPTY, [
+      { name: "title", type: "string", description: "The posting title" },
+      { name: "company", type: "string", description: "Who posted it", required: "yes" },
+    ]);
+    expect(result.added.every((field) => field.required === false)).toBe(true);
+  });
+});

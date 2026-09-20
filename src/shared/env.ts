@@ -41,6 +41,8 @@ export interface PilotEnv {
   openaiApiKey: string | null;
   /** Model used to generate recipes. Required to compile, never to run. */
   compilerModel: string | null;
+  /** Reasoning effort, passed through only when set. Not every model takes it. */
+  compilerEffort: string | null;
   /** Local job board used for controlled end-to-end tests. */
   testBoardPort: number;
   testBoardUrl: string;
@@ -80,6 +82,7 @@ export function loadEnv(): PilotEnv {
     ),
     openaiApiKey: process.env.OPENAI_API_KEY?.trim() || null,
     compilerModel: process.env.PILOT_COMPILER_MODEL?.trim() || null,
+    compilerEffort: process.env.PILOT_COMPILER_EFFORT?.trim() || null,
     testBoardPort,
     testBoardUrl: envString("PILOT_TESTBOARD_URL", `http://127.0.0.1:${testBoardPort}`),
     registryUri: process.env.PILOT_REGISTRY_URI?.trim() || null,

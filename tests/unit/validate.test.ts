@@ -10,8 +10,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkScriptSource } from "../../src/compiler/validate.js";
+import { checkScriptSource, judge } from "../../src/compiler/validate.js";
 import { JOBS_SCHEMA } from "../../src/capability/jobs.js";
+import type { DataSchema } from "../../src/shared/schema.js";
 import { findProjectRoot } from "../../src/shared/env.js";
 
 const root = findProjectRoot();
@@ -103,5 +104,54 @@ describe("fabrication heuristic calibration", () => {
     for (const name of required) {
       expect(keyCount(FABRICATED, name)).toBeGreaterThan(4);
     }
+  });
+});
+
+/**
+ * The emptiness heuristic asks whether a record has a value for any required
+ * field. With no required fields, `[].every()` answers true for every record,
+ * so the check condemned schemas it was never meant to look at — which is what
+ * a freshly proposed capability is, since proposals arrive optional by default.
+ * It made the generated-capability path impossible to complete.
+ */
+describe("judge on a schema with no required fields", () => {
+  const OPTIONAL_ONLY: DataSchema = {
+    name: "postings.board@1",
+    fields: [
+      { name: "title", type: "string", required: false, description: "Posting title" },
+      { name: "url", type: "url", required: false, description: "Link" },
+    ],
+  };
+
+  const REAL_SCRIPT = `export async function search(page, query) {
+  await page.goto("https://example.com/jobs");
+  return page.$$eval("article", (nodes) => nodes.map((n) => ({ title: n.textContent })));
+}`;
+
+  it("accepts records that are populated", () => {
+    const records = [
+      { title: "Engineer", url: "https://example.com/1" },
+      { title: "Designer", url: "https://example.com/2" },
+      { title: "Analyst", url: "https://example.com/3" },
+    ];
+    const result = judge(records, OPTIONAL_ONLY, REAL_SCRIPT);
+    expect(result.problems.filter((p) => p.includes("no value for any required field"))).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("still catches genuinely empty records through the required-field path", () => {
+    const schema: DataSchema = {
+      ...OPTIONAL_ONLY,
+      fields: [{ ...OPTIONAL_ONLY.fields[0]!, required: true }, OPTIONAL_ONLY.fields[1]!],
+    };
+    const records = [{ title: null }, { title: null }, { title: "Engineer" }];
+    const result = judge(records, schema, REAL_SCRIPT);
+
+    expect(result.ok).toBe(false);
+    // Naming the fields is the difference between a fixable complaint and a
+    // dead end: the model cannot repair a selector it has not been told about.
+    const emptiness = result.problems.find((p) => p.includes("no value for any required field"));
+    expect(emptiness).toContain("2/3");
+    expect(emptiness).toContain("title");
   });
 });

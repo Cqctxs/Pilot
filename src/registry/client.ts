@@ -16,15 +16,19 @@ import type { PilotEnv } from "../shared/env.js";
 import { pilotError } from "../shared/errors.js";
 import type { Pilot } from "../shared/pilot.js";
 import {
+  capabilityEntrySchema,
   healthEventSchema,
   registryEntrySchema,
+  type CapabilityEntry,
   type HealthEvent,
   type HealthSummary,
   type RegistryEntry,
 } from "./types.js";
+import type { CapabilityDefinition } from "../capability/registry.js";
 
 const ENTRIES = "pilots";
 const HEALTH = "health";
+const CAPABILITIES = "capabilities";
 
 export interface PublishInput {
   pilot: Pilot;
@@ -115,6 +119,10 @@ export class Registry {
     return this.db.collection<HealthEvent>(HEALTH);
   }
 
+  private capabilities(): Collection<CapabilityEntry> {
+    return this.db.collection<CapabilityEntry>(CAPABILITIES);
+  }
+
   /**
    * Created on connect rather than in a setup script: the registry has to work
    * against a database nobody prepared, or the first thing a new teammate does
@@ -130,6 +138,7 @@ export class Registry {
         { name: "pilot_text", weights: { pilotId: 10, keywords: 5, summary: 1 } },
       ),
       this.healthEvents().createIndex({ pilotId: 1, at: -1 }),
+      this.capabilities().createIndex({ capabilityId: 1, version: -1 }),
     ]);
   }
 
@@ -152,6 +161,54 @@ export class Registry {
     });
     await this.entries().replaceOne({ _id: entry._id }, entry, { upsert: true });
     return entry;
+  }
+
+  /**
+   * Publish a capability definition. Idempotent per schema revision, so the
+   * same definition can be pushed alongside every Pilot that implements it
+   * without accumulating duplicates.
+   */
+  async publishCapability(definition: CapabilityDefinition): Promise<CapabilityEntry> {
+    const entry = capabilityEntrySchema.parse({
+      _id: `${definition.id}/${definition.version}`,
+      capabilityId: definition.id,
+      version: definition.version,
+      definition,
+      fieldNames: definition.schema.fields.map((field) => field.name),
+      publisher: this.env.publisher,
+      publishedAt: new Date().toISOString(),
+    });
+    await this.capabilities().replaceOne({ _id: entry._id }, entry, { upsert: true });
+    return entry;
+  }
+
+  /** One capability revision, or the newest if no version is given. */
+  async fetchCapability(id: string, version?: string): Promise<CapabilityEntry> {
+    const found = version
+      ? await this.capabilities().findOne({ _id: `${id}/${version}` })
+      : await this.capabilities().findOne({ capabilityId: id }, { sort: { version: -1 } });
+    if (!found) {
+      throw pilotError(
+        "UNSUPPORTED_CAPABILITY",
+        version
+          ? `The registry has no ${id} at schema ${version}.`
+          : `The registry has no capability named "${id}".`,
+      );
+    }
+    return capabilityEntrySchema.parse(found);
+  }
+
+  /** Newest revision of every published capability. */
+  async listCapabilities(): Promise<CapabilityEntry[]> {
+    const found = await this.capabilities()
+      .aggregate([
+        { $sort: { capabilityId: 1, version: -1 } },
+        { $group: { _id: "$capabilityId", latest: { $first: "$$ROOT" } } },
+        { $replaceRoot: { newRoot: "$latest" } },
+        { $sort: { capabilityId: 1 } },
+      ])
+      .toArray();
+    return found.map((item) => capabilityEntrySchema.parse(item));
   }
 
   /** One published version, or the newest if no version is given. */

@@ -196,3 +196,41 @@ describe("CapabilityRegistry promotion evidence", () => {
     ).toThrow(/cannot drop core field/i);
   });
 });
+
+describe("CapabilityRegistry.define", () => {
+  it("declares a capability before anything implements it", () => {
+    const store = registry();
+    const definition = store.define("hotels.search@1", BASE);
+
+    expect(definition.version).toBe("1.0.0");
+    expect(definition.schema.name).toBe("hotels.search@1");
+    expect(definition.coreFields).toEqual(["name", "url"]);
+    expect(store.get("hotels.search@1")).toEqual(definition);
+  });
+
+  it("refuses to redefine one Pilots may already have compiled against", () => {
+    const store = registry();
+    store.define("hotels.search@1", BASE);
+    expect(() => store.define("hotels.search@1", BASE)).toThrow(/already exists/);
+    // The message has to point somewhere useful, and @1 is not the answer.
+    expect(() => store.define("hotels.search@1", BASE)).toThrow(/hotels\.search@2/);
+  });
+
+  it("rejects an empty schema", () => {
+    const store = registry();
+    expect(() => store.define("hotels.search@1", { name: "x", fields: [] })).toThrow(/at least one field/);
+  });
+
+  it("save() accepts a revision from elsewhere, unlike define()", () => {
+    const store = registry();
+    const promoted = {
+      capabilityFormatVersion: 1 as const,
+      id: "hotels.search@1",
+      version: "1.3.0",
+      schema: { ...BASE, name: "hotels.search@1" },
+      coreFields: ["name", "url"],
+    };
+    expect(store.save(promoted).version).toBe("1.3.0");
+    expect(store.get("hotels.search@1").version).toBe("1.3.0");
+  });
+});

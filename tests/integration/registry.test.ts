@@ -136,3 +136,59 @@ describe("health", () => {
     expect(rows[0]!.pilotId).toBe("flaky");
   });
 });
+
+describe("capabilities", () => {
+  const definition = {
+    capabilityFormatVersion: 1 as const,
+    id: "hotels.search@1",
+    version: "1.0.0",
+    schema: {
+      name: "hotels.search@1",
+      fields: [
+        { name: "name", type: "string" as const, required: true, description: "Hotel name" },
+        { name: "url", type: "url" as const, required: true, description: "Hotel URL" },
+      ],
+    },
+    coreFields: ["name", "url"],
+  };
+
+  it("round-trips a definition so two machines agree on one interface", async () => {
+    const entry = await registry.publishCapability(definition);
+    expect(entry._id).toBe("hotels.search@1/1.0.0");
+    expect(entry.fieldNames).toEqual(["name", "url"]);
+
+    const fetched = await registry.fetchCapability("hotels.search@1");
+    expect(fetched.definition).toEqual(definition);
+  });
+
+  it("keeps every revision fetchable, and defaults to the newest", async () => {
+    const promoted = {
+      ...definition,
+      version: "1.1.0",
+      schema: {
+        ...definition.schema,
+        fields: [
+          ...definition.schema.fields,
+          { name: "stars", type: "number" as const, required: false, description: "Star rating" },
+        ],
+      },
+    };
+    await registry.publishCapability(definition);
+    await registry.publishCapability(promoted);
+
+    expect((await registry.fetchCapability("hotels.search@1")).version).toBe("1.1.0");
+    // A Pilot records the revision it compiled against, so old ones must resolve.
+    expect((await registry.fetchCapability("hotels.search@1", "1.0.0")).version).toBe("1.0.0");
+  });
+
+  it("publishing the same revision twice replaces it in place", async () => {
+    await registry.publishCapability(definition);
+    await registry.publishCapability(definition);
+    const listed = await registry.listCapabilities();
+    expect(listed.filter((item) => item.capabilityId === "hotels.search@1")).toHaveLength(1);
+  });
+
+  it("says so plainly when a capability is not published", async () => {
+    await expect(registry.fetchCapability("nope.search@1")).rejects.toThrow(/no capability named/);
+  });
+});

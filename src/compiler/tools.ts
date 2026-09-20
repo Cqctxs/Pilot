@@ -128,12 +128,17 @@ export const EXPLORER_TOOLS = [
                   type: "string",
                   description: "What the field means, independently of this website's label for it.",
                 },
+                required: {
+                  type: "boolean",
+                  description:
+                    "Only honoured when you are designing a new capability from an empty schema. True for the one or two fields that identify a record and are present on every single one of them — a title and a link, typically. Ignored when the target schema already has fields, because other Pilots already implement it without yours.",
+                },
               },
               required: ["name", "type", "description"],
               additionalProperties: false,
             },
             description:
-              "Optional fields not already in the target schema that this script extracts reliably. The script must return each proposed field using exactly this name.",
+              "Fields not already in the target schema that this script extracts reliably. The script must return each proposed field using exactly this name. When the target schema is empty you are designing the capability: propose the full set of fields that describe one record on this kind of site, not just the ones this site happens to show.",
           },
           notes: {
             type: "string",

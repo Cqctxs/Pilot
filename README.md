@@ -90,6 +90,12 @@ cp .env.example .env     # OPENAI_API_KEY + PILOT_COMPILER_MODEL
 
 Compiling needs a model key. **Running a compiled Pilot never does.**
 
+The compiler talks to the model through `src/compiler/model.ts` and nowhere
+else, over the Responses API. That endpoint is not a preference: `gpt-5.6-sol`
+refuses function tools on Chat Completions unless reasoning is switched off
+entirely, and exploration — choosing a selector, working out why an extraction
+came back empty — is exactly where the reasoning earns its cost.
+
 ```bash
 npm run testboard        # a local board on :4100
 
@@ -116,6 +122,8 @@ pilot create <url>            Compile a Pilot from a live site
 pilot list                    Installed Pilots and whether they are enabled
 pilot capabilities            Shared schemas and their versions
 pilot fields [targets...]     Which fields the selected Pilots return
+pilot capabilities add <id>   Declare a capability before anything implements it
+pilot capabilities publish    Share the interface; install takes someone else's
 pilot enable|disable <id>     Include or exclude from unqualified searches
 pilot search [targets...]     --keywords --location --type --limit --filter --json
                               --capability <id> --param field=value,...

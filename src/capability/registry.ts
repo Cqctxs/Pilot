@@ -11,7 +11,7 @@ import type { PilotEnv } from "../shared/env.js";
 
 export const CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9.-]*@[1-9]\d*$/;
 
-const capabilityDefinitionSchema = z.strictObject({
+export const capabilityDefinitionSchema = z.strictObject({
   capabilityFormatVersion: z.literal(1),
   id: z.string().regex(CAPABILITY_ID_PATTERN),
   version: z.string().regex(VERSION_PATTERN),
@@ -70,6 +70,52 @@ export class CapabilityRegistry {
   find(id: string): CapabilityDefinition | null {
     const file = this.fileFor(id);
     return existsSync(file) ? this.readFile(file) : null;
+  }
+
+  /**
+   * Declare a capability up front, before any Pilot implements it.
+   *
+   * This is the order the rest of the system assumes and the one `ensure`
+   * cannot express: an interface exists first, and implementations are sought
+   * against it. `ensure` exists for the other direction — a Pilot compiled
+   * against an id nobody had declared yet — and quietly returns whatever is
+   * already there. Declaring is not quiet: redefining a capability that Pilots
+   * have already compiled against would change what their recorded
+   * `capabilitySchemaVersion` refers to, so it is refused.
+   */
+  define(id: string, schema: DataSchema): CapabilityDefinition {
+    if (existsSync(this.fileFor(id))) {
+      throw pilotError(
+        "INVALID_ARGUMENT",
+        `Capability ${id} already exists. Its shape is a contract Pilots have compiled ` +
+          `against — add optional fields by letting promotion find them, or declare a new ` +
+          `major version such as ${id.replace(/@(\d+)$/, (_, major) => `@${Number(major) + 1}`)}.`,
+      );
+    }
+    if (schema.fields.length === 0) {
+      throw pilotError("INVALID_ARGUMENT", `Capability ${id} needs at least one field.`);
+    }
+    const definition: CapabilityDefinition = {
+      capabilityFormatVersion: 1,
+      id,
+      version: "1.0.0",
+      schema: { ...schema, name: id },
+      coreFields: schema.fields.map((field) => field.name),
+    };
+    this.write(definition);
+    return definition;
+  }
+
+  /**
+   * Store a definition that came from somewhere else — an install pulling the
+   * interface down with its implementation. Unlike `define`, this accepts a
+   * revision beyond 1.0.0, because the point is to reproduce what the publisher
+   * had rather than to start something new.
+   */
+  save(definition: CapabilityDefinition): CapabilityDefinition {
+    const parsed = capabilityDefinitionSchema.parse(definition);
+    this.write(parsed);
+    return parsed;
   }
 
   ensure(id: string, seed: DataSchema): CapabilityDefinition {

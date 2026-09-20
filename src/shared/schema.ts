@@ -54,11 +54,16 @@ export function parseFieldList(input: string): DataSchema {
 }
 
 /**
- * Validate optional fields proposed by the compiler model and merge them into
- * the schema it was originally given. Existing fields win: a proposal may
- * repeat a compatible field, but it may not silently change that field's type.
+ * Validate fields proposed by the compiler model and merge them into the schema
+ * it was originally given. Existing fields win: a proposal may repeat a
+ * compatible field, but it may not silently change that field's type.
+ *
+ * A schema that arrives with no fields at all is a *draft capability* — nobody
+ * has declared this interface yet and the model is being asked to design it. In
+ * that case, and only that case, a proposal may mark itself required.
  */
 export function extendDataSchema(schema: DataSchema, input: unknown): SchemaExtensionResult {
+  const allowRequired = schema.fields.length === 0;
   if (input === undefined) return { schema, added: [], problems: [] };
   if (!Array.isArray(input)) {
     return { schema, added: [], problems: ["additionalFields must be an array"] };
@@ -85,7 +90,12 @@ export function extendDataSchema(schema: DataSchema, input: unknown): SchemaExte
     const parsed = fieldSpecSchema.safeParse({
       name: value.name,
       type: value.type,
-      required: false,
+      // Additions to an existing capability are always optional: every other
+      // Pilot already implements that interface without this field, and a new
+      // requirement would retroactively break them. A draft capability has no
+      // implementations yet, so there the model decides what identifies a
+      // record — and a schema with nothing required asserts nothing.
+      required: allowRequired ? value.required === true : false,
       description: value.description,
     });
     if (!parsed.success) {

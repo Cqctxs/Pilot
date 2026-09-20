@@ -8,7 +8,7 @@
  * real. A Pilot is written only after a run produces records that satisfy the
  * schema — there is no path that produces an unvalidated Pilot.
  */
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { toolResult, type TranscriptItem } from "./model.js";
 import {
   extendDataSchema,
   fieldsWithoutValues,
@@ -227,7 +227,7 @@ async function runSession(input: {
   firstPrompt: string;
   promptStyle?: PromptStyle;
 }): Promise<SessionResult> {
-  const messages: ChatCompletionMessageParam[] = [
+  const messages: TranscriptItem[] = [
     { role: "system", content: systemPrompt(input.promptStyle) },
     { role: "user", content: input.firstPrompt },
   ];
@@ -238,7 +238,9 @@ async function runSession(input: {
 
   while (steps < input.maxSteps) {
     const turn = await input.model.turn(messages, EXPLORER_TOOLS);
-    messages.push(turn.raw);
+    // Verbatim, reasoning items included: replaying them is what lets the model
+    // continue a line of thought across turns rather than restart it.
+    messages.push(...turn.raw);
 
     if (turn.toolCalls.length === 0) {
       // No tool call and no script: nudge once rather than ending the session.
@@ -313,17 +315,13 @@ async function runSession(input: {
           );
         }
 
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content: buildRetryPrompt(problems),
-        });
+        messages.push(toolResult(call.id, buildRetryPrompt(problems)));
         continue;
       }
 
       const result = await dispatchTool(input.explorer, call.name, call.args);
       input.progress(`${call.name}(${summarizeArgs(call.args)})`);
-      messages.push({ role: "tool", tool_call_id: call.id, content: result });
+      messages.push(toolResult(call.id, result));
     }
   }
 

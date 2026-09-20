@@ -21,6 +21,12 @@ const HELP = `Pilot — compile any website into a reusable data API.
 
   pilot list                    Show installed Pilots and whether they are enabled
   pilot capabilities            Show shared function types and schema versions
+  pilot capabilities show <id>  One capability, field by field
+  pilot capabilities add <id>   Declare a capability before any Pilot implements it
+    --fields <a,b,c>            name[:type][!][=description], ! marks required
+    --from <file.json>          Field definitions from a file instead
+  pilot capabilities publish <id>  Share the interface through the registry
+  pilot capabilities install <id>  Take someone else's interface (--force to replace)
   pilot fields [targets...]     Which fields the selected Pilots return, and how
                                 many of them provide each one (--json)
   pilot enable <id>             Include a Pilot in unqualified searches
@@ -45,6 +51,7 @@ const HELP = `Pilot — compile any website into a reusable data API.
   pilot registry search <text>  Find a Pilot by site, capability, or field
   pilot registry versions <id>  Published versions of one Pilot
   pilot registry health [id]    Success rate per Pilot, worst first
+  pilot registry capabilities   Every published capability, newest schema
 
   pilot promptlab [--runs n]    A/B the compiler's system prompts
 

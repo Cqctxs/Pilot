@@ -141,7 +141,12 @@ function looksFabricated(code: string, records: RawRecord[], schema: DataSchema)
   return null;
 }
 
-function judge(
+/**
+ * Everything the gate decides once a script has actually run. Exported so the
+ * decision can be tested directly against records, without paying for a model
+ * or a browser to produce them.
+ */
+export function judge(
   records: RawRecord[],
   schema: DataSchema,
   code: string,
@@ -201,12 +206,22 @@ function judge(
   }
 
   // A blocked page often yields a handful of junk rows rather than an error.
+  //
+  // Only meaningful when the schema has required fields: `[].every()` is true,
+  // so without this guard a schema of all-optional fields marks every record
+  // empty and can never validate — which is exactly what a freshly proposed
+  // capability looks like, since proposals arrive optional by default.
   const requiredNames = schema.fields.filter((field) => field.required).map((field) => field.name);
-  const emptyish = records.filter((record) =>
-    requiredNames.every((name) => !record[name]),
-  ).length;
-  if (emptyish > records.length / 2) {
-    problems.push("More than half the records are empty. The extraction is matching the wrong elements.");
+  if (requiredNames.length > 0) {
+    const emptyish = records.filter((record) =>
+      requiredNames.every((name) => !record[name]),
+    ).length;
+    if (emptyish > records.length / 2) {
+      problems.push(
+        `More than half the records (${emptyish}/${records.length}) have no value for any ` +
+          `required field (${requiredNames.join(", ")}). The extraction is matching the wrong elements.`,
+      );
+    }
   }
 
   const fabricated = looksFabricated(code, records, schema);

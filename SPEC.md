@@ -265,6 +265,27 @@ Fields the model notices but cannot extract reliably remain in `discovered` for
 later investigation. This happens only while compiling or repairing; ordinary
 searches never call a model or mutate their schema.
 
+### Declaring a capability
+
+A capability is an interface, so it can be declared before anything implements
+it. `pilot capabilities add <id> --fields <spec>` writes the definition and
+nothing else; `pilot create <url> --capability <id>` then compiles against it.
+Redefining an existing capability is refused — its shape is what every Pilot's
+recorded `capabilitySchemaVersion` refers to, so a change of shape is a new
+major version.
+
+The other direction still works: `pilot create --capability <id>` against an id
+nobody has declared hands the model an empty draft and asks it to design the
+schema from what the site shows, then persists what survived validation. That is
+the only case in which a proposed field may mark itself required — once an
+interface has implementations, a new requirement would retroactively break them.
+
+Definitions travel with implementations. `pilot publish <pilot>` pushes the
+capability alongside the Pilot, and `pilot install` pulls it down when the
+machine does not already have it — never overwriting a local definition, which
+may have been promoted further than the publisher's. `pilot capabilities
+publish` and `pilot capabilities install` move an interface on its own.
+
 ### Shared capability refinement
 
 `config/capabilities/<id>.json` is the versioned base schema for a function
@@ -324,7 +345,7 @@ directory scan, publishing is a commit, inspecting is `cat`.
   "schemaExtensions": [{ "name": "industries", "type": "string", "required": false, "description": "Industries shown by the source" }],
   "artifact": { "kind": "script", "entry": "extract.mjs", "needsBrowser": false },
   "discovered": ["seniority level", "job function", "industries"],
-  "compiler": { "model": "gpt-5.5", "attempts": 1, "steps": 17, "repairedFrom": null },
+  "compiler": { "model": "gpt-5.6-sol", "attempts": 1, "steps": 17, "repairedFrom": null },
   "evidence": { "recordCount": 30, "checkedAt": "...", "sampleFile": "sample.json" }
 }
 ```
@@ -343,6 +364,11 @@ pilot create <url> [--id x] [--name x] [--capability function.type@1] [--fields 
 pilot list [--json]
 pilot capabilities [--json]
 pilot fields [targets...] [--json]
+pilot capabilities add <id> (--fields <spec> | --from <file>)
+pilot capabilities show <id> [--json]
+pilot capabilities publish <id>
+pilot capabilities install <id>[/<schema version>] [--force]
+pilot registry capabilities [--json]
 pilot enable <id> | pilot disable <id>
 pilot search [targets...] [--keywords x] [--location x] [--type x] [--limit n]
                           [--capability id] [--param field=value,...]

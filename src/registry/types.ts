@@ -9,6 +9,7 @@
  */
 import { z } from "zod";
 import { pilotSchema, PILOT_ID_PATTERN, VERSION_PATTERN } from "../shared/pilot.js";
+import { capabilityDefinitionSchema } from "../capability/registry.js";
 
 /** One published version. `_id` is `<pilotId>@<version>`, so publishing twice is idempotent. */
 export const registryEntrySchema = z.object({
@@ -30,6 +31,28 @@ export const registryEntrySchema = z.object({
 });
 
 export type RegistryEntry = z.infer<typeof registryEntrySchema>;
+
+/**
+ * One published revision of a capability definition.
+ *
+ * Publishing implementations without their interface is the drift the local
+ * store cannot prevent: two machines both compiling against `hotels.search@1`
+ * invent their own definition of it, and the `capabilitySchemaVersion` each
+ * Pilot records then points at two different shapes. The interface travels
+ * with the implementations, keyed by `<id>/<schema version>` so every
+ * revision is fetchable and republishing one is idempotent.
+ */
+export const capabilityEntrySchema = z.object({
+  _id: z.string(),
+  capabilityId: z.string(),
+  version: z.string().regex(VERSION_PATTERN),
+  definition: capabilityDefinitionSchema,
+  fieldNames: z.array(z.string()).default([]),
+  publisher: z.string(),
+  publishedAt: z.string(),
+});
+
+export type CapabilityEntry = z.infer<typeof capabilityEntrySchema>;
 
 /**
  * One recorded run of a published Pilot.
