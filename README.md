@@ -13,9 +13,21 @@ await jobs.search();                        // every enabled board
 await jobs.search("linkedin");              // just LinkedIn
 await jobs.search("linkedin", "talent");    // both, merged and deduped
 await jobs.search({ keywords: "software intern", location: "Boston" });
+await jobs.search("linkedin", { type: "full-time" });
+await jobs.search("talent", { filters: { seniority: "Senior" } });
 ```
 
 The application asks for *jobs*. It never learns what shape LinkedIn's HTML is in.
+
+Other function types use the same mechanism with their own shared schema:
+
+```ts
+const hotels = pilot().capability("hotels.search@1");
+await hotels.search("booking", {
+  params: { destination: "Toronto", checkIn: "2026-10-10" },
+  filters: { stars: 5 },
+});
+```
 
 ---
 
@@ -97,12 +109,15 @@ npm run pilot -- search linkedin talent --keywords intern --type internship
 
 ```text
 pilot create <url>            Compile a Pilot from a live site
-  --fields title,price,url    Extract arbitrary fields instead of a capability
+  --capability <id>           Shared function type, e.g. hotels.search@1
+  --fields name,price,url     Seed a new capability, or extract ad-hoc fields
   --query / --location        Values the script is validated against
   --watch                     Show the browser while it explores
 pilot list                    Installed Pilots and whether they are enabled
+pilot capabilities            Shared schemas and their versions
 pilot enable|disable <id>     Include or exclude from unqualified searches
-pilot search [targets...]     --keywords --location --type --limit --json
+pilot search [targets...]     --keywords --location --type --limit --filter --json
+                              --capability <id> --param field=value,...
 pilot repair <id>             Recompile a Pilot whose site changed
 pilot testboard               Serve the local board (--layout a|b)
 
@@ -114,6 +129,9 @@ pilot registry health [id]    Success rate per Pilot, worst first
 
 pilot mcp                     Serve Pilot over MCP to Claude Code / Codex
 ```
+
+For a brand-new capability, `--fields` is optional. If omitted, the compiler
+must propose and validate the initial shared schema before anything is saved.
 
 ---
 
@@ -243,9 +261,26 @@ still open, so the model investigates rather than restarting. **A Pilot is only
 written after a real run succeeds** — that gate is the difference between a
 compiler and a code generator.
 
+The model may also propose useful optional fields that the listing exposes. Its
+generated JavaScript owns the site-specific interpretation: a source label named
+`role` can populate `employmentType` on one site and `title` on another. A new
+field must have a valid name and type and produce a real value during validation
+before it is copied into the Pilot's schema.
+
+Every capability has a versioned shared schema in `config/capabilities/`.
+Pilots compile against that base and store only their additional fields as
+extensions. When two distinct Pilots implement a compatible extension, Pilot
+promotes it into the next minor revision of the shared schema, so later
+compilations receive it automatically.
+
 **Run.** Load the module, call `search(page, query)`. Scripts that found an
 endpoint skip Chromium entirely. `capability/`, `runtime/` and `sdk/` cannot
 import `compiler/`, so searching can't reach a model by accident.
+
+SDK results expose compiler-added fields through `job.attributes`, while
+`SearchResult.fields` advertises the union supported by the selected Pilots.
+They can be filtered locally with `filters` in the SDK or with
+`--filter seniority=Senior,remoteMode=Remote` in the CLI.
 
 **Repair.** `pilot repair` reproduces the failure first — a Pilot that still
 works is left alone — then re-explores and recompiles through the same gate.

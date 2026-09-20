@@ -31,7 +31,8 @@ beforeAll(async () => {
   mongo = await MongoMemoryServer.create();
   env = { ...loadEnv(), registryUri: mongo.getUri(), registryDb: "pilot_test", publisher: "tester" };
   registry = await Registry.connect(env);
-}, 120_000);
+// A fresh machine may need to download the MongoDB test binary once.
+}, 600_000);
 
 afterAll(async () => {
   await registry?.close();

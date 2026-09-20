@@ -7,7 +7,7 @@
  * The script is written once, by the compiler. Running it never calls a model.
  */
 import { z } from "zod";
-import { dataSchemaSchema } from "./schema.js";
+import { dataSchemaSchema, fieldSpecSchema } from "./schema.js";
 
 export const PILOT_ID_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 export const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -33,14 +33,17 @@ export const pilotSchema = z.strictObject({
   }),
   /** Capability this Pilot implements, or `null` for an ad-hoc extraction. */
   capability: z.string().nullable(),
+  /** Shared capability schema revision this Pilot was compiled against. */
+  capabilitySchemaVersion: z.string().regex(VERSION_PATTERN).nullable().default(null),
   /** The capability's schema, copied in so a Pilot is self-describing. */
   schema: dataSchemaSchema,
+  /** Optional fields implemented by this Pilot on top of the shared schema. */
+  schemaExtensions: z.array(fieldSpecSchema).default([]),
   artifact: scriptArtifactSchema,
   /**
-   * Fields the explorer found on the site beyond the capability's schema.
-   * Recorded, not extracted: a capability's shape is fixed so that results from
-   * different sources stay comparable. These are candidates for future
-   * optional fields.
+   * Fields the explorer noticed but could not extract reliably enough to add to
+   * this Pilot's schema. Reliably extracted optional fields are promoted into
+   * `schema.fields` instead.
    */
   discovered: z.array(z.string()).default([]),
   origin: z.enum(["ai-generated", "handwritten"]),

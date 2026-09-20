@@ -9,7 +9,12 @@
  * schema — there is no path that produces an unvalidated Pilot.
  */
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import type { DataSchema, RawRecord } from "../shared/schema.js";
+import {
+  extendDataSchema,
+  fieldsWithoutValues,
+  type DataSchema,
+  type RawRecord,
+} from "../shared/schema.js";
 import type { Pilot } from "../shared/pilot.js";
 import type { ScriptQuery } from "../runtime/script.js";
 import { pilotError } from "../shared/errors.js";
@@ -35,6 +40,8 @@ export interface CompileOptions {
   name?: string;
   capability: string | null;
   schema: DataSchema;
+  /** Revision of the shared capability schema supplied to this compile. */
+  capabilitySchemaVersion?: string;
   /** Query the script is tested with, so it is proven the way it will be used. */
   query?: Partial<ScriptQuery>;
   maxAttempts?: number;
@@ -87,7 +94,11 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       version: "1.0.0",
       target: { name: options.name ?? new URL(options.url).hostname, url: options.url },
       capability: options.capability,
-      schema: options.schema,
+      capabilitySchemaVersion: options.capability
+        ? options.capabilitySchemaVersion ?? "1.0.0"
+        : null,
+      schema: session.schema,
+      schemaExtensions: schemaDifference(options.schema, session.schema),
       artifact: {
         kind: "script",
         entry: "extract.mjs",
@@ -119,6 +130,9 @@ export async function repair(options: {
   pilot: Pilot;
   previousCode: string;
   failure: string;
+  /** Latest shared schema; existing Pilot extensions are layered on top. */
+  baseSchema?: DataSchema;
+  capabilitySchemaVersion?: string;
   query?: Partial<ScriptQuery>;
   maxAttempts?: number;
   maxSteps?: number;
@@ -130,6 +144,9 @@ export async function repair(options: {
   const model = createModelClient(env);
   const progress = options.onProgress ?? (() => {});
   const query = buildQuery(options.query);
+  const baseSchema = options.baseSchema ?? options.pilot.schema;
+  const previousExtensions = schemaDifference(baseSchema, options.pilot.schema);
+  const startingSchema = extendDataSchema(baseSchema, previousExtensions).schema;
 
   const explorer = await openExplorer();
   try {
@@ -137,7 +154,7 @@ export async function repair(options: {
       model,
       explorer,
       progress,
-      schema: options.pilot.schema,
+      schema: startingSchema,
       pilotId: options.pilot.id,
       targetUrl: options.pilot.target.url,
       query,
@@ -148,7 +165,7 @@ export async function repair(options: {
 
 ${buildTaskPrompt({
   url: options.pilot.target.url,
-  schema: options.pilot.schema,
+  schema: startingSchema,
   sampleQuery: describeQuery(query),
 })}`,
     });
@@ -158,6 +175,11 @@ ${buildTaskPrompt({
     const pilot: Pilot = {
       ...options.pilot,
       version: `${major}.${(minor ?? 0) + 1}.0`,
+      capabilitySchemaVersion: options.pilot.capability
+        ? options.capabilitySchemaVersion ?? options.pilot.capabilitySchemaVersion ?? "1.0.0"
+        : null,
+      schema: session.schema,
+      schemaExtensions: schemaDifference(baseSchema, session.schema),
       artifact: { ...options.pilot.artifact, needsBrowser: session.needsBrowser },
       discovered: session.discovered,
       origin: "ai-generated",
@@ -180,6 +202,7 @@ ${buildTaskPrompt({
 interface SessionResult {
   code: string;
   needsBrowser: boolean;
+  schema: DataSchema;
   discovered: string[];
   records: RawRecord[];
   attempts: number;
@@ -237,22 +260,46 @@ async function runSession(input: {
         const discovered = Array.isArray(call.args.discoveredFields)
           ? call.args.discoveredFields.map(String)
           : [];
+        const extension = extendDataSchema(input.schema, call.args.additionalFields);
         if (call.args.notes) input.progress(`model: ${String(call.args.notes)}`);
         input.progress(`validating submitted script (attempt ${attempts}/${input.maxAttempts})`);
 
-        const report = await validateScript({
-          code,
-          needsBrowser,
-          schema: input.schema,
-          pilotId: input.pilotId,
-          targetUrl: input.targetUrl,
-          query: input.query,
-          onLog: (message) => input.progress(`  ${message}`),
-        });
+        const report = extension.problems.length > 0
+          ? { ok: false, records: [], problems: extension.problems }
+          : await validateScript({
+              code,
+              needsBrowser,
+              schema: extension.schema,
+              pilotId: input.pilotId,
+              targetUrl: input.targetUrl,
+              query: input.query,
+              onLog: (message) => input.progress(`  ${message}`),
+            });
+
+        if (report.ok && extension.added.length > 0) {
+          const missing = fieldsWithoutValues(report.records, extension.added);
+          if (missing.length > 0) {
+            report.ok = false;
+            report.problems.push(
+              `Proposed additional field(s) were not extracted from any record: ${missing.join(", ")}`,
+            );
+          }
+        }
 
         if (report.ok) {
+          if (extension.added.length > 0) {
+            input.progress(`added fields: ${extension.added.map((field) => field.name).join(", ")}`);
+          }
           input.progress(`validated: ${report.records.length} records`);
-          return { code, needsBrowser, discovered, records: report.records, attempts, steps };
+          return {
+            code,
+            needsBrowser,
+            schema: extension.schema,
+            discovered,
+            records: report.records,
+            attempts,
+            steps,
+          };
         }
 
         const problems = report.problems.join("\n");
@@ -325,4 +372,9 @@ function describeQuery(query: ScriptQuery): string {
   if (query.keywords) parts.push(`keywords="${query.keywords}"`);
   if (query.location) parts.push(`location="${query.location}"`);
   return parts.join(", ");
+}
+
+function schemaDifference(base: DataSchema, effective: DataSchema): DataSchema["fields"] {
+  const baseNames = new Set(base.fields.map((field) => field.name));
+  return effective.fields.filter((field) => !baseNames.has(field.name));
 }

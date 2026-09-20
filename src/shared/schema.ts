@@ -2,9 +2,9 @@
  * A schema describes the shape of the data a Pilot extracts.
  *
  * It is the one thing the compiler is told up front and the one thing the
- * runtime guarantees on the way out. Capabilities define a fixed schema
- * (see `capability/jobs.ts`); ad-hoc extractions define one inline from
- * `pilot create --fields`.
+ * runtime guarantees on the way out. Capabilities provide the starting schema
+ * (see `capability/jobs.ts`); a compiler may add validated optional fields for
+ * one Pilot, while ad-hoc extractions define a schema from `--fields`.
  */
 import { z } from "zod";
 
@@ -27,6 +27,12 @@ export const dataSchemaSchema = z.strictObject({
 export type FieldSpec = z.infer<typeof fieldSpecSchema>;
 export type DataSchema = z.infer<typeof dataSchemaSchema>;
 
+export interface SchemaExtensionResult {
+  schema: DataSchema;
+  added: FieldSpec[];
+  problems: string[];
+}
+
 /** A single extracted record, before capability-level normalization. */
 export type RawRecord = Record<string, string | null>;
 
@@ -44,5 +50,80 @@ export function parseFieldList(input: string): DataSchema {
   if (fields.length === 0) {
     throw new Error("--fields needs at least one field name");
   }
-  return { name: "adhoc", fields };
+  return dataSchemaSchema.parse({ name: "adhoc", fields });
+}
+
+/**
+ * Validate optional fields proposed by the compiler model and merge them into
+ * the schema it was originally given. Existing fields win: a proposal may
+ * repeat a compatible field, but it may not silently change that field's type.
+ */
+export function extendDataSchema(schema: DataSchema, input: unknown): SchemaExtensionResult {
+  if (input === undefined) return { schema, added: [], problems: [] };
+  if (!Array.isArray(input)) {
+    return { schema, added: [], problems: ["additionalFields must be an array"] };
+  }
+  if (input.length > 20) {
+    return {
+      schema,
+      added: [],
+      problems: ["additionalFields may contain at most 20 fields"],
+    };
+  }
+
+  const fields = [...schema.fields];
+  const byName = new Map(fields.map((field) => [field.name, field]));
+  const added: FieldSpec[] = [];
+  const problems: string[] = [];
+
+  for (const [index, candidate] of input.entries()) {
+    if (!candidate || typeof candidate !== "object") {
+      problems.push(`additionalFields[${index}] must be an object`);
+      continue;
+    }
+    const value = candidate as Record<string, unknown>;
+    const parsed = fieldSpecSchema.safeParse({
+      name: value.name,
+      type: value.type,
+      required: false,
+      description: value.description,
+    });
+    if (!parsed.success) {
+      const reason = parsed.error.issues.map((issue) => issue.message).join("; ");
+      problems.push(`additionalFields[${index}] is invalid: ${reason}`);
+      continue;
+    }
+
+    const existing = byName.get(parsed.data.name);
+    if (existing) {
+      if (existing.type !== parsed.data.type) {
+        problems.push(
+          `Field "${parsed.data.name}" already exists as ${existing.type}; it cannot be changed to ${parsed.data.type}`,
+        );
+      }
+      continue;
+    }
+
+    fields.push(parsed.data);
+    added.push(parsed.data);
+    byName.set(parsed.data.name, parsed.data);
+  }
+
+  return {
+    schema: { ...schema, fields },
+    added,
+    problems,
+  };
+}
+
+/** Fields for which a validation sample contains no non-null value. */
+export function fieldsWithoutValues(records: RawRecord[], fields: FieldSpec[]): string[] {
+  return fields
+    .filter(
+      (field) =>
+        !records.some(
+          (record) => record[field.name] !== null && record[field.name] !== undefined,
+        ),
+    )
+    .map((field) => field.name);
 }

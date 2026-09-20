@@ -19,12 +19,11 @@ import { JOBS_CAPABILITY, JOBS_SCHEMA } from "../../src/capability/jobs.js";
 import { findProjectRoot } from "../../src/shared/env.js";
 import { startTestBoard } from "../../src/testboard/server.js";
 
-const PORT = 4139;
-const BASE = `http://127.0.0.1:${PORT}`;
 const projectRoot = findProjectRoot();
 
-const SCRIPT = `export async function search(page, query) {
-  const url = \`${BASE}/api/jobs?q=\${encodeURIComponent(query.keywords || "")}&loc=\${encodeURIComponent(query.location || "")}\`;
+function scriptFor(base: string): string {
+  return `export async function search(page, query) {
+  const url = \`${base}/api/jobs?q=\${encodeURIComponent(query.keywords || "")}&loc=\${encodeURIComponent(query.location || "")}\`;
   const response = await fetch(url);
   const body = await response.json();
   return body.results.map((job) => ({
@@ -37,6 +36,7 @@ const SCRIPT = `export async function search(page, query) {
   }));
 }
 `;
+}
 
 let board: Server;
 let root: string;
@@ -56,20 +56,23 @@ function structured(result: unknown): Record<string, unknown> {
 }
 
 beforeAll(async () => {
-  board = await startTestBoard({ port: PORT, layout: "a" });
+  board = await startTestBoard({ port: 0, layout: "a" });
+  const address = board.address();
+  if (!address || typeof address === "string") throw new Error("Test board did not bind to a TCP port");
+  const base = `http://127.0.0.1:${address.port}`;
 
   // A Pilot directory of our own, so the test never touches the repo's Pilots.
   root = mkdtempSync(path.join(tmpdir(), "pilot-mcp-"));
   const dir = path.join(root, "pilots", "testboard", "1.0.0");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "extract.mjs"), SCRIPT);
+  writeFileSync(path.join(dir, "extract.mjs"), scriptFor(base));
   writeFileSync(
     path.join(dir, "pilot.json"),
     JSON.stringify({
       pilotFormatVersion: 2,
       id: "testboard",
       version: "1.0.0",
-      target: { name: "Test Board", url: `${BASE}/jobs` },
+      target: { name: "Test Board", url: `${base}/jobs` },
       capability: JOBS_CAPABILITY,
       schema: JOBS_SCHEMA,
       artifact: { kind: "script", entry: "extract.mjs", needsBrowser: false },

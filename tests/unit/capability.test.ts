@@ -3,6 +3,7 @@ import {
   classifyEmploymentType,
   dedupeJobs,
   filterJobs,
+  JOBS_SCHEMA,
   normalizeForMatch,
   toJob,
   type Job,
@@ -19,6 +20,7 @@ function job(overrides: Partial<Job>): Job {
     type: "full-time",
     typeBasis: "source",
     postedAt: null,
+    attributes: {},
     ...overrides,
   };
 }
@@ -73,6 +75,36 @@ describe("toJob", () => {
     const b = toJob("test", { title: "Engineer", url: "https://example.test/1" });
     expect(a?.id).toBe(b?.id);
   });
+
+  it("preserves compiler-added fields as typed attributes", () => {
+    const schema = {
+      ...JOBS_SCHEMA,
+      fields: [
+        ...JOBS_SCHEMA.fields,
+        { name: "seniority", type: "string" as const, required: false, description: "Level" },
+        { name: "salary", type: "number" as const, required: false, description: "Salary" },
+        { name: "remote", type: "boolean" as const, required: false, description: "Remote" },
+      ],
+    };
+    const result = toJob(
+      "test",
+      {
+        title: "Engineer",
+        company: "Acme",
+        url: "https://example.test/1",
+        seniority: " Senior ",
+        salary: "125000",
+        remote: "yes",
+      },
+      schema,
+    );
+
+    expect(result?.attributes).toEqual({
+      seniority: "Senior",
+      salary: 125000,
+      remote: true,
+    });
+  });
 });
 
 describe("filterJobs", () => {
@@ -100,6 +132,18 @@ describe("filterJobs", () => {
   it("filters by employment type", () => {
     expect(filterJobs(jobs, { type: "internship" })).toHaveLength(1);
   });
+
+  it("filters by generated attributes", () => {
+    const attributed = [
+      job({ attributes: { seniority: "Entry level", remote: true } }),
+      job({ title: "Staff Engineer", attributes: { seniority: "Senior", remote: false } }),
+    ];
+    expect(filterJobs(attributed, { filters: { seniority: "senior" } })).toHaveLength(1);
+    expect(filterJobs(attributed, { filters: { remote: true } })).toHaveLength(1);
+    expect(
+      filterJobs(attributed, { filters: { seniority: ["entry level", "principal"] } }),
+    ).toHaveLength(1);
+  });
 });
 
 describe("dedupeJobs", () => {
@@ -114,5 +158,18 @@ describe("dedupeJobs", () => {
   it("keeps genuinely different postings", () => {
     const merged = dedupeJobs([job({}), job({ company: "Globex" })]);
     expect(merged).toHaveLength(2);
+  });
+
+  it("merges missing generated attributes from duplicate postings", () => {
+    const merged = dedupeJobs([
+      job({ attributes: { salary: null, seniority: "Senior" } }),
+      job({ source: "other", attributes: { salary: 125000, remote: true } }),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.attributes).toEqual({
+      salary: 125000,
+      seniority: "Senior",
+      remote: true,
+    });
   });
 });
