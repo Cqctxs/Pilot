@@ -1,6 +1,8 @@
 import { pilot as createPilot, type GenericQuery } from "../sdk/index.js";
 import { JOBS_CAPABILITY, type EmploymentType, type JobQuery } from "../capability/jobs.js";
+import { CapabilityRegistry, canonicalCapability } from "../capability/registry.js";
 import type { PilotEnv } from "../shared/env.js";
+import { pilotError } from "../shared/errors.js";
 import { flagNumber, flagString, type ParsedArgs } from "./args.js";
 import { PilotStore } from "../pilots/store.js";
 import { Registry } from "../registry/client.js";
@@ -9,8 +11,8 @@ import type { SearchResult } from "../sdk/index.js";
 const TYPES: EmploymentType[] = ["internship", "full-time", "part-time", "contract", "temporary"];
 
 export async function runSearch(env: PilotEnv, args: ParsedArgs): Promise<number> {
-  const capability = flagString(args, "capability");
-  if (capability && capability !== JOBS_CAPABILITY && capability !== "jobs.search" && capability !== "jobs.board" && capability !== "jobs") {
+  const capability = resolveSearchCapability(env, args);
+  if (capability !== JOBS_CAPABILITY) {
     return runGenericSearch(env, args, capability);
   }
 
@@ -68,6 +70,39 @@ export async function runSearch(env: PilotEnv, args: ParsedArgs): Promise<number
   await reportRuns(env, result, args);
   // A search that reached at least one source succeeded; a total failure did not.
   return failed.length === result.sources.length ? 1 : 0;
+}
+
+/**
+ * An explicitly named Pilot already says which interface it implements, so
+ * requiring the same information again as --capability is redundant. A bare
+ * search keeps the jobs default because there is no target from which to infer.
+ */
+export function resolveSearchCapability(env: PilotEnv, args: ParsedArgs): string {
+  const requested = flagString(args, "capability");
+  if (requested) return new CapabilityRegistry(env).resolve(requested);
+  if (args.positional.length === 0) return JOBS_CAPABILITY;
+
+  const store = new PilotStore(env);
+  const selected = [...new Set(args.positional)].map((id) => store.get(id).pilot);
+  const adHoc = selected.find((pilot) => pilot.capability === null);
+  if (adHoc) {
+    throw pilotError(
+      "INVALID_ARGUMENT",
+      `Pilot "${adHoc.id}" has an ad-hoc schema rather than a shared capability.`,
+      { pilotId: adHoc.id },
+    );
+  }
+  const capabilities = [
+    ...new Set(selected.map((pilot) => canonicalCapability(pilot.capability)!)),
+  ];
+  if (capabilities.length > 1) {
+    throw pilotError(
+      "INVALID_ARGUMENT",
+      `The selected Pilots implement different capabilities (${capabilities.join(", ")}). ` +
+        "Search one capability at a time, or pass --capability explicitly.",
+    );
+  }
+  return capabilities[0]!;
 }
 
 function parseFilters(input: string): Record<string, string> {

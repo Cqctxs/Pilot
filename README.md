@@ -115,7 +115,7 @@ npm run pilot -- search linkedin talent --keywords intern --type internship
 
 ```text
 pilot create <url>            Reuse a registry match, or compile from the live site
-  --capability <id>           Shared function type, e.g. hotels.search@1
+  --capability <id>           Pin the shared function type instead of inferring it
   --fields name,price,url     Seed a new capability, or extract ad-hoc fields
   --query / --location        Values the script is validated against
   --watch                     Show the browser while it explores
@@ -130,7 +130,8 @@ pilot capabilities add <id>   Declare a capability before anything implements it
                               to have the shape designed (--dry-run to just look)
 pilot capabilities publish    Share the interface; install takes someone else's
 pilot enable|disable <id>     Include or exclude from unqualified searches
-pilot search [targets...]     --keywords --location --type --limit --filter --json
+pilot search [targets...]     Infers the capability from named Pilots
+                              --keywords --location --type --limit --filter --json
                               --capability <id> --param field=value,...
 pilot repair <id>             Recompile a Pilot whose site changed
 pilot testboard               Serve the local board (--layout a|b)
@@ -168,14 +169,15 @@ to fetch the same exact Pilot versions and their capability definitions. Use
 `pilot lock` once to capture Pilots that were already present before the lockfile
 was introduced.
 
-For a brand-new capability, `--fields` is optional. If omitted, the compiler
-must propose and validate the initial shared schema before anything is saved.
-
-For capability-based creation, Pilot checks the registry by website hostname
-and capability before starting the compiler. A compatible published Pilot is
-installed directly, with no model call. Ad-hoc `--fields` requests compile
-because a registry artifact may not provide the requested shape; `--compile`
-also deliberately bypasses reuse.
+The shortest creation flow is just `pilot create <url>`. Pilot first installs an
+exact published match without a model call. Otherwise it reads the page and
+compares the operation with the capability definitions installed locally and
+published in the registry. A matching shared interface is reused (for example,
+a second book catalogue can implement `books.list@1`); if none fits, the model
+names and designs a new generic capability before compiling the tested script.
+Use `--capability` only to override that choice, and `--fields` for deliberately
+ad-hoc extraction. `--compile` bypasses script reuse but still reuses the shared
+capability contract.
 
 ---
 

@@ -388,4 +388,31 @@ describe("package lifecycle", () => {
       write.mockRestore();
     }
   });
+
+  it("reuses an exact published URL without making the user name its capability", async () => {
+    const { pilot, code } = fixture();
+    const published = {
+      ...pilot,
+      id: "autoboard",
+      target: { name: "Automatic Board", url: "https://auto.example/catalog" },
+    };
+    await registry.publish({ pilot: published, code });
+
+    const writes: string[] = [];
+    const write = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      const exitCode = await runCreate(
+        { ...env, openaiApiKey: null, compilerModel: null },
+        parseArgs(["https://auto.example/catalog", "--id", "autoboard"]),
+      );
+      expect(exitCode).toBe(0);
+      expect(writes.join("")).toMatch(/no model call/i);
+      expect(new PilotStore(env).get("autoboard").pilot.capability).toBe(published.capability);
+    } finally {
+      write.mockRestore();
+    }
+  });
 });

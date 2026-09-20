@@ -269,13 +269,18 @@ export class Registry {
   }
 
   /**
-   * Previously compiled implementations for the same website and capability.
-   * The newest semantic version of each Pilot id is returned, with an exact
-   * target URL preferred over another page on the same host.
+   * Previously compiled implementations for the same website, optionally
+   * narrowed to one capability. The unqualified form supports `pilot create
+   * <url>` before its capability has been inferred. The newest semantic version
+   * of each Pilot id is returned, with an exact target URL preferred over
+   * another page on the same host.
    */
-  async compatible(url: string, capability: string): Promise<RegistryEntry[]> {
+  async compatible(url: string, capability?: string | null): Promise<RegistryEntry[]> {
     const host = hostOf(url);
-    const found = (await this.entries().find({ host, capability: { $in: capabilityAliases(capability) } }).toArray()).map((item) =>
+    const match = capability
+      ? { host, capability: { $in: capabilityAliases(capability) } }
+      : { host };
+    const found = (await this.entries().find(match).toArray()).map((item) =>
       registryEntrySchema.parse(item),
     );
     const latest = new Map<string, RegistryEntry>();

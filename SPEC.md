@@ -313,6 +313,14 @@ machine does not already have it — never overwriting a local definition, which
 may have been promoted further than the publisher's. `pilot capabilities
 publish` and `pilot capabilities install` move an interface on its own.
 
+The normal path does not require either step. `pilot create <url>` checks for an
+exact published implementation first. If there is none, it reads the page and
+routes it against the local and registry capability catalog. The model must use
+an existing capability when it represents the same operation despite different
+site labels or extra fields; only a genuinely new operation gets a generic new
+`@1` id and base schema. `--capability` pins this decision when the caller needs
+an explicit contract.
+
 ### Shared capability refinement
 
 `config/capabilities/<id>.json` is the versioned base schema for a function

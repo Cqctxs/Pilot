@@ -21,7 +21,7 @@ CORE
 
   pilot create <url>            Get a Pilot for a site — reuses a published one,
                                 compiles only when nobody has done it yet
-    --capability <id>           Interface it should implement (default: jobs.search)
+    --capability <id>           Pin the interface instead of choosing it automatically
     --fields <a,b,c>            Ad-hoc extraction instead, for a one-off
     --watch                     Show the browser while it explores
     --compile                   Force a fresh compile even if a match exists
@@ -34,7 +34,7 @@ CORE
 
   pilot search [pilots...]      Run a search across every enabled Pilot
     --keywords / --location     What to look for
-    --capability <id>           Interface to search (default: jobs.search)
+    --capability <id>           Override the interface inferred from named Pilots
     --limit <n> --json          Cap per Pilot; machine-readable output
 
   pilot publish <pilot|capability>   Share it, so the next person skips compiling
