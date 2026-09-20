@@ -4,6 +4,7 @@ import { JOBS_CAPABILITY, JOBS_SCHEMA } from "../capability/jobs.js";
 import { CapabilityRegistry } from "../capability/registry.js";
 import { parseFieldList, type DataSchema } from "../shared/schema.js";
 import { PILOT_ID_PATTERN } from "../shared/pilot.js";
+import { toPilotError } from "../shared/errors.js";
 import type { PilotEnv } from "../shared/env.js";
 import { flagNumber, flagString, type ParsedArgs } from "./args.js";
 import { Registry, withRegistry } from "../registry/client.js";
@@ -91,7 +92,17 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     }
 
     if (Registry.isConfigured(env)) {
-      const candidates = await withRegistry(env, (remote) => remote.compatible(url, capability!));
+      // Best-effort. Looking for something to reuse is an optimization, and an
+      // optimization that cannot run is not a reason to refuse the work: a
+      // configured-but-unreachable registry must degrade to compiling, not
+      // take `pilot create` down with it.
+      const candidates = await withRegistry(env, (remote) =>
+        remote.compatible(url, capability!),
+      ).catch((cause: unknown) => {
+        const error = toPilotError(cause);
+        process.stderr.write(`  registry unavailable (${error.code}); compiling instead\n`);
+        return [] as Awaited<ReturnType<Registry["compatible"]>>;
+      });
       const existing = candidates.find((entry) => entry.pilotId === id) ??
         (requestedId ? undefined : candidates[0]);
       if (existing) {

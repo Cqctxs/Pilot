@@ -1,188 +1,115 @@
 export async function search(page, query) {
-  query = query || {};
-  const keywords = query.keywords || "";
-  const where = query.location || "";
-  const limit = Number(query.limit) > 0 ? Number(query.limit) : 60;
-
-  const base = new URL("https://www.ziprecruiter.com/jobs-search");
-  if (keywords) base.searchParams.set("search", keywords);
-  if (where) base.searchParams.set("location", where);
-
+  const keywords = query?.keywords == null ? "" : String(query.keywords);
+  const location = query?.location == null ? "" : String(query.location);
+  const requested = Number(query?.limit);
+  const limit = Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 20;
+  const maxPages = Math.min(2, Math.max(1, Math.ceil(limit / 20)));
   const results = [];
-  const seen = new Set();
+  const seenUrls = new Set();
 
-  for (let p = 1; p <= 3 && results.length < limit; p++) {
-    const url = new URL(base.toString());
-    if (p > 1) url.searchParams.set("page", String(p));
+  for (let pageNumber = 1; pageNumber <= maxPages && results.length < limit; pageNumber++) {
+    const path = pageNumber === 1 ? "/jobs-search" : `/jobs-search/${pageNumber}`;
+    const params = new URLSearchParams();
+    if (keywords) params.set("search", keywords);
+    if (location) params.set("location", location);
+    const url = `https://www.ziprecruiter.com${path}?${params.toString()}`;
 
-    // Hand-edited after compiling: the generated script also waited for
-    // "networkidle", which this page never reaches (ads and analytics hold
-    // sockets open). It timed out at its full 10s on every run and three pages
-    // of it cost 30s per search, while the data is present ~11ms after
-    // domcontentloaded.
-    let ready = true;
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 12000 });
+    if (!response) throw new Error(`ZipRecruiter search page ${pageNumber} did not return a response`);
+    if (response.status() >= 400) throw new Error(`ZipRecruiter search page ${pageNumber} returned HTTP ${response.status()}`);
+
     try {
-      await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 45000 });
-      await page.waitForFunction(
-        () => document.querySelector('article[id^="job-card-"]') ||
-              [...document.scripts].some(s => (s.textContent || "").includes("jobKeysMap")) ||
-              /no jobs|no results|0 jobs/i.test(document.body.innerText || ""),
-        null,
-        { timeout: 15000 }
-      );
-    } catch (e) {
-      ready = false;
+      await page.waitForFunction(() => {
+        const body = document.body?.innerText || "";
+        if (/captcha|verify (that )?you are human|access denied|unusual traffic|just a moment/i.test(body)) return true;
+        for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+          try {
+            const data = JSON.parse(script.textContent || "");
+            if (data?.["@type"] === "ItemList") {
+              const items = Array.isArray(data.itemListElement) ? data.itemListElement : [];
+              if (items.length === 0 || document.querySelector('article[id^="job-card-"]')) return true;
+            }
+          } catch {}
+        }
+        return /no jobs found|no matching jobs|couldn.t find any jobs|0 jobs\b/i.test(body);
+      }, { timeout: 6000 });
+    } catch {
+      const diagnostic = await page.evaluate(() => ({
+        title: document.title,
+        text: (document.body?.innerText || "").slice(0, 500)
+      }));
+      throw new Error(`ZipRecruiter results did not load on page ${pageNumber}: ${diagnostic.title || diagnostic.text}`);
     }
 
-    if (!ready) {
-      // Page 1 producing nothing means a challenge or a block, not an empty
-      // search. Fail loudly so it is recorded as PILOT_BROKEN and can be
-      // repaired, instead of being reported as a successful search that
-      // happened to find nothing.
-      if (p === 1) {
-        throw new Error("ZipRecruiter returned no results container (likely a Cloudflare challenge or block)");
-      }
-      break;
-    }
+    const blocked = await page.evaluate(() => {
+      const text = `${document.title}\n${document.body?.innerText || ""}`;
+      return /captcha|verify (that )?you are human|access denied|unusual traffic|just a moment/i.test(text);
+    });
+    if (blocked) throw new Error(`ZipRecruiter served a challenge or block page on page ${pageNumber}`);
 
-    const pageRecords = await page.evaluate(() => {
-      const clean = (s) => (s == null ? null : String(s).replace(/\s+/g, " ").trim() || null);
-      const absolute = (u) => {
-        if (!u) return null;
-        try { return new URL(u, location.origin).href; } catch (e) { return null; }
-      };
-      const employmentName = (name) => {
-        const map = {
-          EMPLOYMENT_TYPE_NAME_FULL_TIME: "Full-time",
-          EMPLOYMENT_TYPE_NAME_PART_TIME: "Part-time",
-          EMPLOYMENT_TYPE_NAME_CONTRACT: "Contract",
-          EMPLOYMENT_TYPE_NAME_TEMPORARY: "Temporary",
-          EMPLOYMENT_TYPE_NAME_INTERNSHIP: "Internship",
-          EMPLOYMENT_TYPE_NAME_PER_DIEM: "Per diem",
-          EMPLOYMENT_TYPE_NAME_OTHER: "Other"
-        };
-        return map[name] || (name ? String(name).replace(/^EMPLOYMENT_TYPE_NAME_/, "").toLowerCase().replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
-      };
-
-      function balancedObject(text, key) {
-        const idx = text.indexOf(key);
-        if (idx < 0) return null;
-        const colon = text.indexOf(":", idx + key.length);
-        const start = text.indexOf("{", colon);
-        if (start < 0) return null;
-        let depth = 0, inString = false, esc = false;
-        for (let i = start; i < text.length; i++) {
-          const ch = text[i];
-          if (inString) {
-            if (esc) esc = false;
-            else if (ch === "\\") esc = true;
-            else if (ch === '"') inString = false;
-          } else {
-            if (ch === '"') inString = true;
-            else if (ch === "{") depth++;
-            else if (ch === "}") {
-              depth--;
-              if (depth === 0) return text.slice(start, i + 1);
-            }
-          }
-        }
-        return null;
-      }
-
-      function extractJobMap() {
-        const sources = [];
-        if (Array.isArray(window.__next_f)) {
-          for (const row of window.__next_f) {
-            if (Array.isArray(row)) {
-              for (const part of row) if (typeof part === "string") sources.push(part);
-            }
-          }
-        }
-        for (const s of document.scripts) sources.push(s.textContent || "");
-
-        for (const raw of sources) {
-          if (!raw.includes("jobKeysMap")) continue;
-          const variants = [
-            raw,
-            raw.replace(/\\"/g, '"').replace(/\\u0026/g, "&").replace(/\\n/g, "\n")
-          ];
-          for (const text of variants) {
-            const objText = balancedObject(text, '"jobKeysMap"');
-            if (!objText) continue;
-            try {
-              const obj = JSON.parse(objText);
-              if (obj && typeof obj === "object" && Object.keys(obj).length) return obj;
-            } catch (e) {}
-          }
-        }
-        return null;
-      }
-
-      const jobMap = extractJobMap();
-      if (jobMap) {
-        return Object.values(jobMap).map(job => {
-          const display = job.display || {};
-          const locTypes = display.locationTypesV2?.fullDisplay || display.locationTypesV2?.compactDisplay || display.locationTypes || "";
-          let loc = clean(display.location) || clean(job.location?.displayName);
-          if (!loc && /remote/i.test(locTypes)) loc = "Remote";
-
-          let employment = clean(display.employmentTypes?.fullDisplay) || clean(display.employmentTypes?.compactDisplay);
-          if (!employment && Array.isArray(job.employmentTypes)) {
-            employment = clean(job.employmentTypes.map(e => employmentName(e && e.name)).filter(Boolean).join(", "));
-          }
-
-          return {
-            title: clean(job.title),
-            company: clean(job.company && job.company.name),
-            location: loc,
-            url: absolute(job.rawCanonicalZipJobPageUrl || job.seoJobRedirectPageUrl || job.jobRedirectPageUrl),
-            employmentType: employment,
-            postedAt: clean(display.rollingPostedAt)
-          };
-        }).filter(r => r.title && r.company && r.url);
-      }
-
-      // Fallback: listing cards plus the ItemList JSON-LD contains canonical URLs.
-      let ldUrls = [];
-      for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+    const extracted = await page.evaluate(() => {
+      let itemList = null;
+      for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
         try {
-          const data = JSON.parse(s.textContent || "{}");
-          const items = Array.isArray(data.itemListElement) ? data.itemListElement : [];
-          if (items.length) ldUrls = items.map(x => x && x.url).filter(Boolean);
-        } catch (e) {}
+          const data = JSON.parse(script.textContent || "");
+          if (data?.["@type"] === "ItemList") {
+            itemList = data;
+            break;
+          }
+        } catch {}
       }
-      const ids = new Set();
-      const cards = [];
-      for (const el of document.querySelectorAll('article[id^="job-card-"]')) {
-        if (ids.has(el.id)) continue;
-        ids.add(el.id);
-        cards.push(el);
-      }
-      return cards.map((el, i) => ({
-        title: clean(el.querySelector('[data-testid="serp-job-card-title"], h2')?.textContent),
-        company: clean(el.querySelector('[data-testid="job-card-company"]')?.textContent),
-        location: clean(el.querySelector('[data-testid="job-card-location"]')?.textContent),
-        url: absolute(ldUrls[i]),
-        employmentType: null,
-        postedAt: null
-      })).filter(r => r.title && r.company && r.url);
+
+      const noResults = /no jobs found|no matching jobs|couldn.t find any jobs|0 jobs\b/i.test(document.body?.innerText || "");
+      if (!itemList) return { error: noResults ? null : "Job ItemList structured data was missing", rows: [] };
+      const items = Array.isArray(itemList.itemListElement) ? itemList.itemListElement : [];
+      if (!items.length) return { error: null, rows: [] };
+
+      const seenIds = new Set();
+      const cards = Array.from(document.querySelectorAll('article[id^="job-card-"]')).filter(card => {
+        if (!card.id || seenIds.has(card.id)) return false;
+        seenIds.add(card.id);
+        return true;
+      });
+      if (!cards.length) return { error: "Job cards were missing despite non-empty structured data", rows: [] };
+
+      const rows = cards.map((card, index) => {
+        const item = items[index] || null;
+        const title = card.querySelector('[data-testid="serp-job-card-title"] h2, h2')?.textContent?.trim() || item?.name?.trim() || null;
+        const company = card.querySelector('[data-testid="job-card-company"]')?.textContent?.trim() || null;
+        const locationNode = card.querySelector('[data-testid="job-card-location"]');
+        const locationLine = locationNode?.parentElement?.textContent?.trim() || "";
+        const workLocation = /\bremote\b/i.test(locationLine) ? "Remote" : (locationNode?.textContent?.trim() || null);
+        let jobUrl = null;
+        if (item?.url) {
+          try { jobUrl = new URL(item.url, document.baseURI).href; } catch {}
+        }
+        return {
+          title,
+          company,
+          location: workLocation,
+          url: jobUrl,
+          employmentType: null,
+          postedAt: null
+        };
+      });
+      return { error: null, rows };
     });
 
-    if (!pageRecords.length) break;
-    for (const r of pageRecords) {
-      if (!r.title || !r.company || !r.url) continue;
-      if (seen.has(r.url)) continue;
-      seen.add(r.url);
-      results.push({
-        title: r.title,
-        company: r.company,
-        location: r.location || null,
-        url: r.url,
-        employmentType: r.employmentType || null,
-        postedAt: r.postedAt || null
-      });
+    if (extracted.error) throw new Error(`ZipRecruiter extraction failed on page ${pageNumber}: ${extracted.error}`);
+    if (!extracted.rows.length) break;
+
+    let newCount = 0;
+    for (const row of extracted.rows) {
+      if (!row.title || !row.company || !row.url) {
+        throw new Error(`ZipRecruiter returned a job missing a required title, company, or URL on page ${pageNumber}`);
+      }
+      if (seenUrls.has(row.url)) continue;
+      seenUrls.add(row.url);
+      results.push(row);
+      newCount++;
       if (results.length >= limit) break;
     }
+    if (newCount === 0) break;
   }
 
   return results.slice(0, limit);

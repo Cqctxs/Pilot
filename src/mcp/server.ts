@@ -356,7 +356,7 @@ export function buildServer(env: PilotEnv): McpServer {
           if (Registry.isConfigured(env)) {
             const candidates = await withRegistry(env, (remote) =>
               remote.compatible(url, resolvedCapability!),
-            );
+            ).catch(() => []);
             const existing = candidates.find((entry) => entry.pilotId === pilotId) ??
               (id ? undefined : candidates[0]);
             if (existing) {

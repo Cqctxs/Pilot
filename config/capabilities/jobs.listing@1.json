@@ -1,0 +1,54 @@
+{
+  "capabilityFormatVersion": 1,
+  "id": "jobs.listing@1",
+  "version": "1.0.0",
+  "schema": {
+    "name": "jobs.listing@1",
+    "fields": [
+      {
+        "name": "title",
+        "type": "string",
+        "required": true,
+        "description": "The job position title."
+      },
+      {
+        "name": "url",
+        "type": "url",
+        "required": true,
+        "description": "Absolute URL of the job listing."
+      },
+      {
+        "name": "company",
+        "type": "string",
+        "required": false,
+        "description": "The employer or hiring organization."
+      },
+      {
+        "name": "location",
+        "type": "string",
+        "required": false,
+        "description": "The location shown for the job."
+      },
+      {
+        "name": "employmentType",
+        "type": "string",
+        "required": false,
+        "description": "The listing's employment type, such as Internship."
+      },
+      {
+        "name": "datePosted",
+        "type": "string",
+        "required": false,
+        "description": "The listing date in ISO YYYY-MM-DD form when supplied."
+      }
+    ]
+  },
+  "coreFields": [
+    "title",
+    "url",
+    "company",
+    "location",
+    "employmentType",
+    "datePosted"
+  ]
+}

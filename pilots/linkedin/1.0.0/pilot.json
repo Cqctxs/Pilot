@@ -53,26 +53,21 @@
   "artifact": {
     "kind": "script",
     "entry": "extract.mjs",
-    "needsBrowser": false
+    "needsBrowser": true
   },
-  "discovered": [
-    "seniority level",
-    "job function",
-    "industries",
-    "job description",
-    "applicant status badges such as Actively Hiring / Be an early applicant"
-  ],
+  "discovered": [],
   "origin": "ai-generated",
-  "createdAt": "2026-09-19T21:31:20.656Z",
+  "createdAt": "2026-09-20T03:43:35.909Z",
   "compiler": {
-    "model": "gpt-5.5",
+    "model": "gpt-5.6-sol",
     "attempts": 1,
-    "steps": 17,
-    "repairedFrom": null
+    "steps": 8,
+    "repairedFrom": null,
+    "skillSource": null
   },
   "evidence": {
-    "recordCount": 30,
-    "checkedAt": "2026-09-19T21:31:20.656Z",
+    "recordCount": 60,
+    "checkedAt": "2026-09-20T03:43:35.909Z",
     "sampleFile": "sample.json"
   }
 }

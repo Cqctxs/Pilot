@@ -1,51 +1,51 @@
 {
   "pilotFormatVersion": 2,
-  "id": "talent",
+  "id": "tb-designed",
   "version": "1.0.0",
   "target": {
-    "name": "Talent.com",
-    "url": "https://www.talent.com/jobs?k=software+intern&l=Boston"
+    "name": "Test Board",
+    "url": "http://127.0.0.1:4100/jobs?q=intern"
   },
-  "capability": "jobs.board@1",
+  "capability": "jobs.listing@1",
   "capabilitySchemaVersion": "1.0.0",
   "schema": {
-    "name": "jobs.board@1",
+    "name": "jobs.listing@1",
     "fields": [
       {
         "name": "title",
         "type": "string",
         "required": true,
-        "description": "The job title as posted"
-      },
-      {
-        "name": "company",
-        "type": "string",
-        "required": true,
-        "description": "Hiring company name"
-      },
-      {
-        "name": "location",
-        "type": "string",
-        "required": false,
-        "description": "Work location, or 'Remote'"
+        "description": "The job position title."
       },
       {
         "name": "url",
         "type": "url",
         "required": true,
-        "description": "Link to the full posting"
+        "description": "Absolute URL of the job listing."
+      },
+      {
+        "name": "company",
+        "type": "string",
+        "required": false,
+        "description": "The employer or hiring organization."
+      },
+      {
+        "name": "location",
+        "type": "string",
+        "required": false,
+        "description": "The location shown for the job."
       },
       {
         "name": "employmentType",
         "type": "string",
         "required": false,
-        "description": "Raw employment type as the site labels it, e.g. 'Internship', 'Full-time'"
+        "description": "The listing's employment type, such as Internship."
       },
       {
-        "name": "postedAt",
+        "name": "datePosted",
         "type": "string",
         "required": false,
-        "description": "When the job was posted, as shown"
+        "description": "The listing date in ISO YYYY-MM-DD form when supplied."
       }
     ]
   },
@@ -57,17 +57,17 @@
   },
   "discovered": [],
   "origin": "ai-generated",
-  "createdAt": "2026-09-20T03:44:55.171Z",
+  "createdAt": "2026-09-20T03:42:40.693Z",
   "compiler": {
     "model": "gpt-5.6-sol",
     "attempts": 1,
-    "steps": 18,
+    "steps": 17,
     "repairedFrom": null,
     "skillSource": null
   },
   "evidence": {
-    "recordCount": 20,
-    "checkedAt": "2026-09-20T03:44:55.171Z",
+    "recordCount": 4,
+    "checkedAt": "2026-09-20T03:42:40.693Z",
     "sampleFile": "sample.json"
   }
 }

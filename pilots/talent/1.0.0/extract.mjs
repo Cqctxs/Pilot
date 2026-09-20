@@ -1,59 +1,78 @@
 export async function search(page, query) {
-  const keywords = query?.keywords || '';
-  const location = query?.location || '';
-  const requestedLimit = Number(query?.limit);
-  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : Infinity;
+  if (!page) throw new Error('Talent.com search requires a browser page');
 
+  const keywords = query?.keywords == null ? '' : String(query.keywords).trim();
+  const locationQuery = query?.location == null ? '' : String(query.location).trim();
+  const requested = Number(query?.limit);
+  const limit = Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : 20;
+  const maxPages = Math.min(3, Math.max(1, Math.ceil(limit / 20)));
   const results = [];
   const seen = new Set();
 
-  for (let p = 1; p <= 3 && results.length < limit; p++) {
+  for (let pageNumber = 1; pageNumber <= maxPages && results.length < limit; pageNumber++) {
     const params = new URLSearchParams();
     if (keywords) params.set('k', keywords);
-    if (location) params.set('l', location);
-    if (p > 1) params.set('p', String(p));
-    const url = `https://www.talent.com/jobs?${params.toString()}`;
+    if (locationQuery) params.set('l', locationQuery);
+    if (pageNumber > 1) params.set('p', String(pageNumber));
+    const searchUrl = `https://www.talent.com/jobs?${params.toString()}`;
 
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    let response;
     try {
-      await page.waitForSelector('article[data-testid="job-card-unified"]', { timeout: 10000 });
-    } catch (e) {
-      break;
+      response = await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
+    } catch (error) {
+      throw new Error(`Talent.com search page ${pageNumber} did not load: ${error.message}`);
+    }
+    if (!response) throw new Error(`Talent.com search page ${pageNumber} returned no response`);
+    if (response.status() >= 400) {
+      throw new Error(`Talent.com search page ${pageNumber} returned HTTP ${response.status()}`);
     }
 
-    const pageJobs = await page.$$eval('article[data-testid="job-card-unified"]', (cards) => {
-      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-      const empRe = /^(Full-time|Part-time|Permanent|Temporary|Contract|Internship|Freelance|Apprenticeship|Volunteer|Seasonal|Casual|Per diem)(\s*\+\d+)?$/i;
+    try {
+      await page.waitForSelector('article[data-testid="job-card-unified"], [data-testid="searchNoJobFound"]', { timeout: 10000 });
+    } catch (error) {
+      const diagnostic = await page.locator('body').innerText().catch(() => '');
+      if (/captcha|verify you are human|access denied|unusual traffic|temporarily blocked/i.test(diagnostic)) {
+        throw new Error('Talent.com served a captcha or access-block page');
+      }
+      throw new Error(`Talent.com search results did not appear on page ${pageNumber}`);
+    }
 
-      return cards.map((el) => {
-        const title = clean(el.querySelector('h2')?.textContent);
+    const noResults = await page.$('[data-testid="searchNoJobFound"]');
+    const cardCount = await page.locator('article[data-testid="job-card-unified"]').count();
+    if (noResults && cardCount === 0) break;
+    if (cardCount === 0) throw new Error(`Talent.com page ${pageNumber} had no job cards or explicit no-results message`);
 
-        const metaSpans = Array.from(el.querySelectorAll('address span'))
-          .map((s) => clean(s.textContent))
-          .filter((s) => s && s !== '•');
-        const company = metaSpans[0] || '';
-        const location = metaSpans[1] || null;
+    const pageRecords = await page.$$eval('article[data-testid="job-card-unified"]', cards => cards.map(card => {
+      const text = element => element?.textContent?.trim() || null;
+      const meta = [...card.querySelectorAll('address span')]
+        .filter(span => span.getAttribute('aria-hidden') !== 'true');
+      const labels = [...card.querySelectorAll('svg[title]')]
+        .map(svg => svg.getAttribute('title')?.trim())
+        .filter(Boolean);
+      const employmentType = labels.find(label => /^(?:full[- ]?time|part[- ]?time|permanent|temporary|contract(?:or)?|internship|seasonal|freelance|casual|apprenticeship)(?:\s*\+\d+)?$/i.test(label)) || null;
+      const link = card.querySelector('a[href*="/view?"]');
+      const href = link?.getAttribute('href');
 
-        const href = el.querySelector('a[href*="/view"]')?.getAttribute('href') || el.querySelector('a[href]')?.getAttribute('href') || '';
-        const url = href ? new URL(href, window.location.href).href : '';
+      return {
+        title: text(card.querySelector('h2')),
+        company: text(meta[0]),
+        location: text(meta[1]),
+        url: href ? new URL(href, window.location.origin).href : null,
+        employmentType,
+        postedAt: text(card.querySelector('time'))
+      };
+    }));
 
-        const lines = (el.innerText || '').split('\n').map(clean).filter(Boolean);
-        const employmentType = lines.find((line) => empRe.test(line)) || null;
-        const postedAt = clean(el.querySelector('time')?.textContent) || lines.find((line) => /^(Last updated|Posted)/i.test(line)) || null;
-
-        return { title, company, location, url, employmentType, postedAt };
-      }).filter((job) => job.title && job.company && job.url);
-    });
-
-    if (!pageJobs.length) break;
-
-    for (const job of pageJobs) {
-      if (seen.has(job.url)) continue;
-      seen.add(job.url);
-      results.push(job);
+    let added = 0;
+    for (const record of pageRecords) {
+      if (!record.title || !record.company || !record.url || seen.has(record.url)) continue;
+      seen.add(record.url);
+      results.push(record);
+      added++;
       if (results.length >= limit) break;
     }
+    if (added === 0 || pageRecords.length < 20) break;
   }
 
-  return results;
+  return results.slice(0, limit);
 }
