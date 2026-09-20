@@ -10,12 +10,12 @@
  * about not trampling them.
  */
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runInit } from "../../src/cli/init.js";
 import { parseArgs } from "../../src/cli/args.js";
-import type { PilotEnv } from "../../src/shared/env.js";
+import { findProjectRoot, hasProjectRoot, type PilotEnv } from "../../src/shared/env.js";
 
 /**
  * A real enough project. The directories have to be actual paths, not
@@ -118,6 +118,55 @@ describe("pilot init", () => {
     const output = lines.join("");
     expect(output).not.toContain("Registered");
     expect(output).toMatch(/--codex|npx pilot mcp/);
+  });
+
+  /**
+   * Reported as "I ran `pilot init` in a new folder and nothing happened".
+   * Nothing happened there because everything happened somewhere else: with no
+   * package.json above the caller, the root fell back to the module's own
+   * location, so `.mcp.json` and `CLAUDE.md` were written into the Pilot clone
+   * and `pilot install` put that folder's Pilots there too.
+   */
+  it("treats a folder with nothing above it as its own project", () => {
+    const loose = mkdtempSync(path.join(tmpdir(), "pilot-loose-"));
+    expect(hasProjectRoot(loose)).toBe(false);
+    expect(findProjectRoot(loose)).toBe(loose);
+  });
+
+  it("makes a bare folder a real project, so later commands find it again", () => {
+    const env = project();
+    runInit(env, parseArgs([]));
+    const manifest = path.join(env.projectRoot, "package.json");
+    expect(existsSync(manifest)).toBe(true);
+    // A subdirectory must now resolve back up to this folder rather than past it.
+    const deep = path.join(env.projectRoot, "src", "deep");
+    mkdirSync(deep, { recursive: true });
+    expect(findProjectRoot(deep)).toBe(env.projectRoot);
+  });
+
+  it("leaves an existing manifest alone", () => {
+    const env = project();
+    const manifest = path.join(env.projectRoot, "package.json");
+    writeFileSync(manifest, JSON.stringify({ name: "theirs", version: "9.9.9" }));
+    runInit(env, parseArgs([]));
+    expect(JSON.parse(readFileSync(manifest, "utf8")).version).toBe("9.9.9");
+  });
+
+  /** "Nothing happened" was only ever a mystery because nothing said where. */
+  it("names the directory it is setting up", () => {
+    const env = project();
+    const lines: string[] = [];
+    const write = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      runInit(env, parseArgs([]));
+    } finally {
+      process.stdout.write = write;
+    }
+    expect(lines.join("")).toContain(env.projectRoot);
   });
 
   it("refuses to guess at a malformed .mcp.json", () => {

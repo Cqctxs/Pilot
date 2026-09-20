@@ -63,6 +63,22 @@ export function runInit(env: PilotEnv, args: ParsedArgs): number {
   const written: string[] = [];
   const skipped: string[] = [];
 
+  // Say the directory, always, before writing anything into it. Every other
+  // command silently resolves a project root by walking up from the working
+  // directory, which is invisible and fine until the day it picks somewhere
+  // you did not mean — and then "nothing happened" is the only symptom.
+  process.stdout.write(`Setting up ${root}\n\n`);
+
+  // An empty folder is a project the moment `pilot init` is run in it. Writing
+  // the manifest is what makes that true for everything afterwards: without
+  // one, a later command run from a subdirectory walks straight past this
+  // folder and adopts whatever project is above it.
+  const manifest = path.join(root, "package.json");
+  if (!existsSync(manifest)) {
+    writeFileSync(manifest, `${JSON.stringify(packageManifest(root), null, 2)}\n`);
+    written.push("package.json (this folder is now a project)");
+  }
+
   const mcpFile = path.join(root, ".mcp.json");
   const existing = existsSync(mcpFile) ? readJson(mcpFile) : null;
   const servers = (existing?.mcpServers ?? {}) as Record<string, unknown>;
@@ -105,6 +121,22 @@ export function runInit(env: PilotEnv, args: ParsedArgs): number {
   }
   process.stdout.write(reportState(env, root));
   return 0;
+}
+
+/**
+ * The smallest manifest that makes a directory a project.
+ *
+ * Deliberately minimal: this exists to anchor the project root, not to guess
+ * at someone's build. `npm init` afterwards fills in the rest without conflict.
+ */
+function packageManifest(root: string): Record<string, unknown> {
+  const name = path.basename(root).toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-_.]+/, "");
+  return {
+    name: name || "pilot-project",
+    version: "1.0.0",
+    private: true,
+    type: "module",
+  };
 }
 
 /** Whether the Codex CLI is here at all, without caring which version. */
