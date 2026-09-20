@@ -9,6 +9,7 @@ import path from "node:path";
 import { parsePilot, pilotConfigFileSchema, type Pilot, type PilotConfig } from "../shared/pilot.js";
 import { pilotError } from "../shared/errors.js";
 import { loadEnv, type PilotEnv } from "../shared/env.js";
+import type { RawRecord } from "../shared/schema.js";
 
 export interface LoadedPilot {
   pilot: Pilot;
@@ -89,6 +90,28 @@ export class PilotStore {
     }
     this.reload();
     return dir;
+  }
+
+  /**
+   * The records this Pilot returned when it was last validated. Evidence of
+   * what its fields actually contain, which is what promotion compares.
+   * Missing or unreadable samples are simply no evidence, never an error.
+   */
+  readSample(id: string): RawRecord[] {
+    const loaded = this.get(id);
+    const file = path.join(loaded.dir, loaded.pilot.evidence.sampleFile ?? "sample.json");
+    if (!existsSync(file)) return [];
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8"));
+      return Array.isArray(parsed) ? (parsed as RawRecord[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Sample records for every installed Pilot, keyed by id. */
+  samples(): Map<string, RawRecord[]> {
+    return new Map(this.all().map((item) => [item.pilot.id, this.readSample(item.pilot.id)]));
   }
 
   /** The script source of an installed Pilot, for repair and for reading. */

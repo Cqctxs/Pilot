@@ -95,7 +95,11 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
   const dir = store.save(result.pilot, result.code, result.records.slice(0, 10));
   store.setEnabled(id, true);
   const promotion = capability
-    ? registry.promoteFromPilots(capability, store.all().map((item) => item.pilot))
+    ? registry.promoteFromPilots(
+        capability,
+        store.all().map((item) => item.pilot),
+        { samples: store.samples() },
+      )
     : null;
 
   const transport = result.pilot.artifact.needsBrowser ? "browser" : "http";
@@ -117,6 +121,11 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
       `  promoted to ${capability}@schema-${promotion.definition.version}: ` +
         `${promotion.promoted.map((field) => field.name).join(", ")}\n`,
     );
+  }
+  if (promotion && promotion.blocked.length > 0) {
+    for (const item of promotion.blocked) {
+      process.stdout.write(`  kept site-local: ${item.field} — ${item.reason}\n`);
+    }
   }
   process.stdout.write(`\nTry it:  pilot search ${id}\n`);
   return 0;

@@ -7,6 +7,7 @@ import { runList } from "./list.js";
 import { runSearch } from "./search.js";
 import { runRepair } from "./repair.js";
 import { runCapabilities } from "./capabilities.js";
+import { runFields } from "./fields.js";
 
 const HELP = `Pilot — compile any website into a reusable data API.
 
@@ -20,6 +21,8 @@ const HELP = `Pilot — compile any website into a reusable data API.
 
   pilot list                    Show installed Pilots and whether they are enabled
   pilot capabilities            Show shared function types and schema versions
+  pilot fields [targets...]     Which fields the selected Pilots return, and how
+                                many of them provide each one (--json)
   pilot enable <id>             Include a Pilot in unqualified searches
   pilot disable <id>            Exclude it
 
@@ -72,6 +75,8 @@ async function main(): Promise<number> {
       return runList(env, args);
     case "capabilities":
       return runCapabilities(env, args);
+    case "fields":
+      return runFields(env, args);
     case "enable":
     case "disable": {
       const id = args.positional[0];

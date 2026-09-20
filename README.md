@@ -115,6 +115,7 @@ pilot create <url>            Compile a Pilot from a live site
   --watch                     Show the browser while it explores
 pilot list                    Installed Pilots and whether they are enabled
 pilot capabilities            Shared schemas and their versions
+pilot fields [targets...]     Which fields the selected Pilots return
 pilot enable|disable <id>     Include or exclude from unqualified searches
 pilot search [targets...]     --keywords --location --type --limit --filter --json
                               --capability <id> --param field=value,...
@@ -272,6 +273,35 @@ Pilots compile against that base and store only their additional fields as
 extensions. When two distinct Pilots implement a compatible extension, Pilot
 promotes it into the next minor revision of the shared schema, so later
 compilations receive it automatically.
+
+Compatibility has to be shown twice, because a shared column is only worth
+having if every source fills it with comparable data. Two Pilots must declare
+the field with the same type, and the values they actually returned must have
+the same shape. The second check is the one that earns its keep: `postedAt` is
+a string everywhere, but a site reporting `6 hours ago` and a site reporting
+`2026-09-14` do not belong in one column, and neither the name nor the type
+says so. A field that fails either check stays on the Pilot that extracts it and
+the disagreement is printed rather than swallowed.
+
+Because the schema grows, what is available depends on which Pilots are
+installed. `pilot fields` answers that for a given selection — the same
+selection rule as `pilot search`, so the default describes exactly what an
+unqualified search returns:
+
+```text
+FIELD           TYPE    DECLARED  FILLED  TIER    FROM
+title*          string  3/3       3/3     core    all
+salary          string  2/3       1/2     shared  indeed, linkedin
+seniority       string  1/3       1/1     local   linkedin
+```
+
+Three tiers: `core` is the capability's guaranteed contract, `shared` was
+added to it by promotion, `local` belongs to one source. Two counts, because
+declaring a field is not the same as filling it — a Pilot can carry `salary`
+in its schema and return null for it on every record. `DECLARED` counts the
+Pilots carrying the field; `FILLED` counts those whose validation samples
+actually had a value. Agents get the same answer from the `pilot_fields` MCP
+tool.
 
 **Run.** Load the module, call `search(page, query)`. Scripts that found an
 endpoint skip Chromium entirely. `capability/`, `runtime/` and `sdk/` cannot

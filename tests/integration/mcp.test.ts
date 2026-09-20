@@ -112,6 +112,7 @@ describe("handshake", () => {
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       "pilot_create",
+      "pilot_fields",
       "pilot_health",
       "pilot_install",
       "pilot_list",
@@ -140,6 +141,21 @@ describe("reading data", () => {
     expect(textOf(result)).toContain("testboard@1.0.0");
     const pilots = structured(result).pilots as Array<{ id: string; fields: string[] }>;
     expect(pilots[0]!.fields).toContain("company");
+  });
+
+  it("reports which fields are available and how many sources provide them", async () => {
+    const result = await client.callTool({ name: "pilot_fields", arguments: {} });
+    const body = textOf(result);
+
+    expect(body).toContain("jobs.board@1");
+    // One Pilot installed, so every capability field is core and fully covered.
+    expect(body).toContain("title: string required [core] declared 1/1");
+    const groups = structured(result).capabilities as Array<{
+      capability: string;
+      fields: Array<{ name: string; tier: string; available: number; total: number }>;
+    }>;
+    expect(groups[0]?.capability).toBe("jobs.board@1");
+    expect(groups[0]?.fields.every((field) => field.available === field.total)).toBe(true);
   });
 
   it("searches job boards and returns structured jobs", async () => {

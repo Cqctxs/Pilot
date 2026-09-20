@@ -270,9 +270,25 @@ searches never call a model or mutate their schema.
 `config/capabilities/<id>.json` is the versioned base schema for a function
 type. Each Pilot records the shared schema revision it compiled against and the
 validated optional fields it adds on top. A field remains Pilot-local at first.
-When two distinct Pilots implement the same name and type, it is promoted as an
-optional field in the next minor schema revision. Future Pilots receive that
-refined shared schema automatically. Conflicting types are never promoted.
+When two distinct Pilots implement the same name and type **and the values in
+their validation samples have the same shape**, it is promoted as an optional
+field in the next minor schema revision. Future Pilots receive that refined
+shared schema automatically. Conflicting types are never promoted, and neither
+are fields whose values disagree — an ISO date on one site and a relative time
+on another are not one column. Both kinds of disagreement are reported as
+`blocked` rather than skipped silently.
+
+`coreFields` is the part of a capability every implementation guarantees.
+Writing a definition that no longer contains one of them is an error, not a
+judgement call: a core field disappearing would silently break every caller.
+
+`pilot fields [targets...]` reports, per capability, every field the selected
+Pilots can produce, tiered as `core` (the guaranteed contract), `shared`
+(promoted into the capability) or `local` (one source). Each field carries two
+counts: how many selected Pilots **declare** it, and how many have samples that
+actually **fill** it. The second exposes a field that is present in a schema but
+null in practice. The same report is available to agents as the `pilot_fields`
+MCP tool.
 
 Required/core fields are fixed for a major capability version. Changing them is
 a breaking change and requires a new capability major, such as `hotels.search@2`.
@@ -326,6 +342,7 @@ pilot create <url> [--id x] [--name x] [--capability function.type@1] [--fields 
                    [--query text] [--location text] [--attempts n] [--steps n] [--watch]
 pilot list [--json]
 pilot capabilities [--json]
+pilot fields [targets...] [--json]
 pilot enable <id> | pilot disable <id>
 pilot search [targets...] [--keywords x] [--location x] [--type x] [--limit n]
                           [--capability id] [--param field=value,...]

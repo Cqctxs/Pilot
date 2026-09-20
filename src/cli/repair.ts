@@ -53,6 +53,7 @@ export async function runRepair(env: PilotEnv, args: ParsedArgs): Promise<number
     ? registry.promoteFromPilots(
         result.pilot.capability,
         store.all().map((item) => item.pilot),
+        { samples: store.samples() },
       )
     : null;
   process.stdout.write(
@@ -70,6 +71,11 @@ export async function runRepair(env: PilotEnv, args: ParsedArgs): Promise<number
       `  promoted to ${result.pilot.capability}@schema-${promotion.definition.version}: ` +
         `${promotion.promoted.map((field) => field.name).join(", ")}\n`,
     );
+  }
+  if (promotion && promotion.blocked.length > 0) {
+    for (const item of promotion.blocked) {
+      process.stdout.write(`  kept site-local: ${item.field} — ${item.reason}\n`);
+    }
   }
   return 0;
 }

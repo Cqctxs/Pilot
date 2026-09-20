@@ -16,6 +16,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { JOBS_CAPABILITY, JOBS_SCHEMA, type EmploymentType, type JobQuery } from "../capability/jobs.js";
+import { describeFields } from "../capability/fields.js";
+import { CapabilityRegistry, type CapabilityDefinition } from "../capability/registry.js";
 import { PilotStore } from "../pilots/store.js";
 import { Registry, withRegistry } from "../registry/client.js";
 import { executePilot } from "../runtime/execute.js";
@@ -105,6 +107,58 @@ export function buildServer(env: PilotEnv): McpServer {
             `fields: ${item.fields.join(", ")}${item.enabled ? "" : " [disabled]"}`,
         );
         return text(lines.join("\n"), { pilots });
+      } catch (cause) {
+        return failure(cause);
+      }
+    },
+  );
+
+  server.registerTool(
+    "pilot_fields",
+    {
+      title: "Show which fields the Pilots return",
+      description:
+        "List the fields available from a set of Pilots, and how many of them provide each one. " +
+        "Call this before pilot_search when you plan to read or filter a field beyond the basics: " +
+        "the schema of a capability grows as Pilots are compiled, so what is available depends on " +
+        "which Pilots are installed. Fields are tiered - core is guaranteed by every source, shared " +
+        "is in the capability schema but not every site fills it, and local comes from one source " +
+        "only. Declared counts Pilots carrying the field; filled counts those whose samples " +
+        "actually had a value, so a field declared everywhere but filled nowhere is not usable.",
+      inputSchema: {
+        targets: z
+          .array(z.string().regex(PILOT_ID_PATTERN))
+          .optional()
+          .describe("Pilot ids. Omit for every enabled Pilot, matching what pilot_search would use."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ targets }) => {
+      try {
+        const store = new PilotStore(env);
+        const registry = new CapabilityRegistry(env);
+        const pilots = store.resolve(targets ?? []).map((item) => item.pilot);
+
+        const definitions = new Map<string, CapabilityDefinition>();
+        for (const pilot of pilots) {
+          if (!pilot.capability || definitions.has(pilot.capability)) continue;
+          const found = registry.find(pilot.capability);
+          if (found) definitions.set(pilot.capability, found);
+        }
+
+        const groups = describeFields(pilots, definitions, store.samples());
+        const lines = groups.flatMap((group) => [
+          `${group.capability ?? "ad-hoc"} (schema ${group.schemaVersion ?? "unregistered"}) — ` +
+            `${group.pilots.length} Pilot(s): ${group.pilots.join(", ")}`,
+          ...group.fields.map(
+            (field) =>
+              `  ${field.name}: ${field.type}${field.required ? " required" : ""} ` +
+              `[${field.tier}] declared ${field.available}/${field.total}` +
+              `${field.measured > 0 ? `, filled ${field.populated}/${field.measured}` : ""} — ` +
+              `${field.available === field.total ? "all sources" : field.providedBy.join(", ")}`,
+          ),
+        ]);
+        return text(lines.join("\n"), { capabilities: groups });
       } catch (cause) {
         return failure(cause);
       }
