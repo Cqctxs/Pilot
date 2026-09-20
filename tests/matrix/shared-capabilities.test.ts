@@ -98,7 +98,7 @@ afterAll(() => {
   }
 });
 
-describe.sequential("automatic shared capabilities across public sites", () => {
+describe("automatic shared capabilities across public sites", () => {
   for (const group of selectedGroups) {
     it(`${group.category}: compiles two sites into one capability`, async () => {
       for (const site of group.sites) {
