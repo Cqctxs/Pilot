@@ -24,7 +24,6 @@ import { pilotError } from "../shared/errors.js";
 import type { PilotEnv } from "../shared/env.js";
 import {
   CAPABILITY_ID_PATTERN,
-  canonicalCapability,
   type CapabilityDefinition,
 } from "../capability/registry.js";
 
@@ -376,9 +375,7 @@ export async function selectCapability(options: {
 
     if (raw.action === "create_new") {
       const { fields, problems } = parseProposedFields(raw.fields);
-      const duplicate = candidates.some(
-        (candidate) => canonicalCapability(candidate.id) === canonicalCapability(id),
-      );
+      const duplicate = candidates.some((candidate) => candidate.id === id);
       if (CAPABILITY_ID_PATTERN.test(id) && !duplicate && fields.length >= 3) {
         return { action: "create_new", id, fields, rationale, model: client.model };
       }

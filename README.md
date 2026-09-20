@@ -130,7 +130,7 @@ pilot capabilities add <id>   Declare a capability before anything implements it
                               to have the shape designed (--dry-run to just look)
 pilot capabilities publish    Share the interface; install takes someone else's
 pilot enable|disable <id>     Include or exclude from unqualified searches
-pilot search [targets...]     Infers the capability from named Pilots
+pilot search [targets...]     Infers one capability from named or enabled Pilots
                               --keywords --location --type --limit --filter --json
                               --capability <id> --param field=value,...
 pilot repair <id>             Recompile a Pilot whose site changed

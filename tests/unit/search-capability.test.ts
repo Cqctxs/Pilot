@@ -55,8 +55,21 @@ describe("search capability inference", () => {
     expect(resolveSearchCapability(env, parseArgs(["books"]))).toBe("books.list@1");
   });
 
-  it("keeps jobs as the default when no Pilot is named", () => {
+  it("infers from enabled Pilots when they all implement one capability", () => {
+    const store = new PilotStore(env);
+    store.setEnabled("books", false);
     expect(resolveSearchCapability(env, parseArgs([]))).toBe(JOBS_CAPABILITY);
+  });
+
+  it("errors when no Pilot is enabled", () => {
+    const store = new PilotStore(env);
+    store.setEnabled("books", false);
+    store.setEnabled("jobs", false);
+    expect(() => resolveSearchCapability(env, parseArgs([]))).toThrow(/No enabled Pilots/);
+  });
+
+  it("requires a choice when enabled Pilots span capabilities", () => {
+    expect(() => resolveSearchCapability(env, parseArgs([]))).toThrow(/enabled.*different capabilities/);
   });
 
   it("resolves an explicit capability override", () => {

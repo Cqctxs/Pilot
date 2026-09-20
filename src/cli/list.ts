@@ -1,7 +1,6 @@
 import { PilotStore } from "../pilots/store.js";
 import {
   CapabilityRegistry,
-  canonicalCapability,
   CAPABILITY_ID_PATTERN,
   CAPABILITY_NAME_PATTERN,
 } from "../capability/registry.js";
@@ -112,7 +111,7 @@ export function runOverview(env: PilotEnv, args: ParsedArgs): number {
   for (const capability of capabilities) {
     const implementers = pilots.filter(
       (item) =>
-        canonicalCapability(item.pilot.capability) === canonicalCapability(capability.id),
+        item.pilot.capability === capability.id,
     );
     process.stdout.write(
       `${capability.id}  ${capability.schema.fields.map((field) => field.name).join(", ")}\n`,

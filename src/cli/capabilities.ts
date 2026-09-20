@@ -329,10 +329,9 @@ async function remove(
   }
   const definition = registry.get(id);
   const { PilotStore } = await import("../pilots/store.js");
-  const { canonicalCapability } = await import("../capability/registry.js");
   const implementers = new PilotStore(env)
     .all()
-    .filter((item) => canonicalCapability(item.pilot.capability) === definition.id)
+    .filter((item) => item.pilot.capability === definition.id)
     .map((item) => item.pilot.id);
 
   if (implementers.length > 0 && !args.flags.force) {

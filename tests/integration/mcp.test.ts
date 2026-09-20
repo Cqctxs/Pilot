@@ -115,6 +115,7 @@ describe("handshake", () => {
       "pilot_create",
       "pilot_fields",
       "pilot_health",
+      "pilot_inspect",
       "pilot_install",
       "pilot_list",
       "pilot_publish",
@@ -169,6 +170,24 @@ describe("reading data", () => {
     expect(jobs.length).toBeGreaterThan(0);
     expect(jobs.every((job) => job.url.startsWith("http"))).toBe(true);
     expect(textOf(result)).toMatch(/job\(s\) from 1\/1 source/);
+  });
+
+  /**
+   * Reported from real use: two flight Pilots had their sample values written
+   * into the URL, so they returned the same records for every query and said
+   * success. Finding that out meant locating pilots/<id>/<version>/extract.mjs
+   * on disk, which meant reading src/shared/env.ts to learn where that is. One
+   * call now answers it, and names the query keys the script actually reads.
+   */
+  it("shows a script and which query keys it reads", async () => {
+    const result = await client.callTool({ name: "pilot_inspect", arguments: { id: "testboard" } });
+    expect(result.isError).toBeFalsy();
+    const body = textOf(result);
+    expect(body).toContain("reads query: ");
+    const keys = structured(result).readsQueryKeys as string[];
+    expect(keys).toContain("keywords");
+    expect(keys).toContain("location");
+    expect(String(structured(result).script)).toContain("export async function search");
   });
 
   it("runs a Pilot directly for raw records", async () => {

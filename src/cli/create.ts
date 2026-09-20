@@ -3,7 +3,6 @@ import { PilotStore } from "../pilots/store.js";
 import { JOBS_CAPABILITY, JOBS_SCHEMA } from "../capability/jobs.js";
 import {
   CapabilityRegistry,
-  canonicalCapability,
   type CapabilityDefinition,
 } from "../capability/registry.js";
 import { parseFieldList, type DataSchema } from "../shared/schema.js";
@@ -225,7 +224,7 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     if (args.flags.compile !== true && !skillRef && registryAvailable) {
       const compatible = remoteHostPilots.length > 0
         ? remoteHostPilots.filter(
-            (entry) => canonicalCapability(entry.capability) === canonicalCapability(capability),
+            (entry) => entry.capability === capability,
           )
         : await withRegistry(env, (client) => client.compatible(url, capability)).catch(
             () => [] as RegistryEntry[],
@@ -251,7 +250,7 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     const local = store.all().find(
       (item) =>
         item.pilot.id === id &&
-        canonicalCapability(item.pilot.capability) === capability &&
+        item.pilot.capability === capability &&
         new URL(item.pilot.target.url).hostname.replace(/^www\./, "") ===
           new URL(url).hostname.replace(/^www\./, ""),
     );

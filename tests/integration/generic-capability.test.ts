@@ -72,9 +72,74 @@ describe("generic capabilities", () => {
           name: "Harbour Hotel",
           url: "https://hotels.example/1",
           city: "Montreal",
-          stars: "5",
+          // A number, because the capability declares one. This used to be the
+          // string "5": only `url` was coerced, so every other declared type
+          // was a promise the runtime did not keep. Consumers then compare
+          // these across sources, and "143" < "9" is true.
+          stars: 5,
         },
       },
     ]);
+  });
+
+  /**
+   * The declared type is kept even when the site wraps it in currency, commas
+   * or units, and a value that is not the declared type becomes null rather
+   * than a string in a number field — a missing field is reported by
+   * required-field validation, while a wrong-typed one type checks and lies.
+   */
+  it("coerces declared types out of the text a site actually shows", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "pilot-coerce-"));
+    roots.push(root);
+    const env = {
+      ...loadEnv(),
+      pilotsDir: path.join(root, "pilots"),
+      configFile: path.join(root, "pilots.json"),
+      capabilitiesDir: path.join(root, "capabilities"),
+    };
+    const schema = {
+      name: "hotels.search@1",
+      fields: [
+        { name: "name", type: "string" as const, required: true, description: "Hotel name" },
+        { name: "url", type: "url" as const, required: true, description: "Booking link" },
+        { name: "price", type: "number" as const, required: false, description: "Nightly price" },
+        { name: "refundable", type: "boolean" as const, required: false, description: "Free cancellation" },
+      ],
+    };
+    const artifact: Pilot = {
+      pilotFormatVersion: 2,
+      id: "hotel-b",
+      version: "1.0.0",
+      target: { name: "Hotel B", url: "https://hotels.example/search" },
+      capability: "hotels.search@1",
+      capabilitySchemaVersion: "1.0.0",
+      schema,
+      schemaExtensions: [],
+      artifact: { kind: "script", entry: "extract.mjs", needsBrowser: false },
+      discovered: [],
+      origin: "handwritten",
+      createdAt: new Date(0).toISOString(),
+      compiler: null,
+      evidence: { recordCount: 2, checkedAt: new Date(0).toISOString(), sampleFile: null },
+    };
+    // Exactly what a site hands over: a formatted price, a word for a boolean,
+    // and a price that is not a price at all.
+    const code = `export async function search(page, query) {
+  return [
+    { name: "Grand", url: "https://hotels.example/3", price: "$1,299.50", refundable: "yes" },
+    { name: "Budget", url: "https://hotels.example/4", price: "call us", refundable: "no" }
+  ];
+}`;
+    new PilotStore(env).save(artifact, code);
+    new PilotStore(env).setEnabled("hotel-b", true);
+
+    const hotels = createPilot(env).capability("hotels.search@1");
+    const { records } = await hotels.search("hotel-b");
+    expect(records.map((record) => record.values.price)).toEqual([1299.5, null]);
+    expect(records.map((record) => record.values.refundable)).toEqual([true, false]);
+
+    // The point of the coercion, stated as the comparison that used to break.
+    const prices = records.map((record) => record.values.price).filter((p): p is number => p !== null);
+    expect(Math.min(...prices)).toBe(1299.5);
   });
 });

@@ -1,6 +1,6 @@
 import { pilot as createPilot, type GenericQuery } from "../sdk/index.js";
 import { JOBS_CAPABILITY, type EmploymentType, type JobQuery } from "../capability/jobs.js";
-import { CapabilityRegistry, canonicalCapability } from "../capability/registry.js";
+import { CapabilityRegistry } from "../capability/registry.js";
 import type { PilotEnv } from "../shared/env.js";
 import { pilotError } from "../shared/errors.js";
 import { flagNumber, flagString, type ParsedArgs } from "./args.js";
@@ -74,32 +74,41 @@ export async function runSearch(env: PilotEnv, args: ParsedArgs): Promise<number
 
 /**
  * An explicitly named Pilot already says which interface it implements, so
- * requiring the same information again as --capability is redundant. A bare
- * search keeps the jobs default because there is no target from which to infer.
+ * requiring the same information again as --capability is redundant. With no
+ * names, inference is safe only when every enabled capability-based Pilot
+ * agrees; guessing jobs would make another function type look broken.
  */
 export function resolveSearchCapability(env: PilotEnv, args: ParsedArgs): string {
   const requested = flagString(args, "capability");
   if (requested) return new CapabilityRegistry(env).resolve(requested);
-  if (args.positional.length === 0) return JOBS_CAPABILITY;
 
   const store = new PilotStore(env);
-  const selected = [...new Set(args.positional)].map((id) => store.get(id).pilot);
+  const selected = args.positional.length > 0
+    ? [...new Set(args.positional)].map((id) => store.get(id).pilot)
+    : store.enabled().map((item) => item.pilot).filter((pilot) => pilot.capability !== null);
+  if (selected.length === 0) {
+    throw pilotError(
+      "NO_PILOTS_ENABLED",
+      "No enabled Pilots with a shared capability can fulfill this search. " +
+        "Create or enable one, or name an installed Pilot explicitly.",
+    );
+  }
   const adHoc = selected.find((pilot) => pilot.capability === null);
   if (adHoc) {
     throw pilotError(
       "INVALID_ARGUMENT",
-      `Pilot "${adHoc.id}" has an ad-hoc schema rather than a shared capability.`,
+      `Pilot "${adHoc.id}" has an ad-hoc schema rather than a shared capability. ` +
+        "Name capability-based Pilots explicitly or pass --capability.",
       { pilotId: adHoc.id },
     );
   }
-  const capabilities = [
-    ...new Set(selected.map((pilot) => canonicalCapability(pilot.capability)!)),
-  ];
+  const capabilities = [...new Set(selected.map((pilot) => pilot.capability!))];
   if (capabilities.length > 1) {
     throw pilotError(
       "INVALID_ARGUMENT",
-      `The selected Pilots implement different capabilities (${capabilities.join(", ")}). ` +
-        "Search one capability at a time, or pass --capability explicitly.",
+      `The ${args.positional.length > 0 ? "selected" : "enabled"} Pilots implement ` +
+        `different capabilities (${capabilities.join(", ")}). Search one capability ` +
+        "at a time by naming its Pilots or passing --capability.",
     );
   }
   return capabilities[0]!;
