@@ -187,11 +187,18 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
   ): Promise<{ jobs: Job[]; result: SourceResult }> {
     const started = Date.now();
     try {
+      // `limit` describes the final normalized result, not the site's raw
+      // prefix. Passing it through while a local filter is active can discard
+      // matches before we see them: two raw records with `limit: 2` may contain
+      // only one full-time job even though the third record also matches.
+      const filtersLocally = Boolean(
+        query.keywords || query.type || query.filters || (query.strictLocation && query.location),
+      );
       const records = await executePilot(item, {
         query: {
           keywords: query.keywords ?? "",
           location: query.location ?? "",
-          limit: query.limit ?? null,
+          limit: filtersLocally ? null : query.limit ?? null,
         },
       });
 
@@ -258,7 +265,12 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
   ): Promise<{ records: CapabilityRecord[]; result: SourceResult }> {
     const started = Date.now();
     try {
-      const scriptQuery: Partial<ScriptQuery> = { ...query.params, limit: query.limit ?? null };
+      const scriptQuery: Partial<ScriptQuery> = {
+        ...query.params,
+        // Exact-match filters happen here, after extraction. A source-side
+        // prefix cannot satisfy a limit over that filtered set.
+        limit: query.filters ? null : query.limit ?? null,
+      };
       let raw = await executePilot(item, { query: scriptQuery });
       if (query.filters) {
         raw = raw.filter((record) => matchesGenericFilters(record, query.filters!));

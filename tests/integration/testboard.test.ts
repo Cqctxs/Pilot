@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startTestBoard } from "../../src/testboard/server.js";
 import { PilotStore } from "../../src/pilots/store.js";
 import { executePilot } from "../../src/runtime/execute.js";
+import { pilot as createPilot } from "../../src/sdk/index.js";
 import {
   JOBS_CAPABILITY,
   JOBS_SCHEMA,
@@ -27,6 +28,7 @@ let server: Server;
 let root: string;
 let store: PilotStore;
 let base: string;
+let env: ReturnType<typeof loadEnv>;
 
 /** A script exactly like one the compiler would submit for a JSON-backed site. */
 function script(): string {
@@ -34,7 +36,7 @@ function script(): string {
   const url = \`${base}/api/jobs?q=\${encodeURIComponent(query.keywords || "")}&loc=\${encodeURIComponent(query.location || "")}\`;
   const response = await fetch(url);
   const body = await response.json();
-  return body.results.map((job) => ({
+  const records = body.results.map((job) => ({
     title: job.title,
     company: job.company,
     location: job.location,
@@ -43,6 +45,8 @@ function script(): string {
     postedAt: job.postedAt,
     seniority: job.title.includes("Intern") ? "Entry" : "Mid",
   }));
+  const limit = Number(query.limit);
+  return Number.isFinite(limit) && limit > 0 ? records.slice(0, limit) : records;
 }
 `;
 }
@@ -100,11 +104,13 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${address.port}`;
   root = mkdtempSync(path.join(tmpdir(), "pilot-test-"));
   install();
-  store = new PilotStore({
+  env = {
     ...loadEnv(),
     pilotsDir: path.join(root, "pilots"),
     configFile: path.join(root, "pilots.json"),
-  });
+    capabilitiesDir: path.join(root, "capabilities"),
+  };
+  store = new PilotStore(env);
 });
 
 afterAll(async () => {
@@ -155,5 +161,17 @@ describe("running a script Pilot against the test board", () => {
     const mid = await search({ filters: { seniority: "Mid" } });
     expect(mid).toHaveLength(4);
     expect(mid.every((job) => job.attributes.seniority === "Mid")).toBe(true);
+  });
+
+  it("applies limit after local employment-type filtering", async () => {
+    const jobs = createPilot(env).capability(JOBS_CAPABILITY);
+    const result = await jobs.search("testboard", {
+      keywords: "engineer",
+      type: "full-time",
+      limit: 2,
+    });
+
+    expect(result.jobs).toHaveLength(2);
+    expect(result.jobs.every((job) => job.type === "full-time")).toBe(true);
   });
 });

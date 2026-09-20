@@ -17,6 +17,7 @@ import { PilotStore } from "../pilots/store.js";
 import { CapabilityRegistry } from "../capability/registry.js";
 import type { PilotEnv } from "../shared/env.js";
 import type { ParsedArgs } from "./args.js";
+import { writePilotDocs } from "./docs.js";
 
 const SERVER_NAME = "pilot";
 
@@ -39,11 +40,16 @@ no API. A **capability** is an interface (\`jobs.search\`); a **Pilot**
 implements it for one site (\`linkedin\`). Application code targets the
 capability, never a site.
 
+- \`PILOT.md\` — concise installed targets, exact SDK calls and return fields.
 - \`pilot_capabilities\` — the interfaces here, field by field. Read this before
   writing code against a result; a field marked \`*\` is on every record.
 - \`pilot_list\` — which sites can be asked, and what each returns.
 - \`pilot_search\` — run a search now.
 - \`pilot_create\` — compile a new site, only when no Pilot covers it.
+
+Use those concise tools as the source of truth. Do not read Pilot's
+\`node_modules\` implementation to rediscover an interface unless a documented
+call actually fails.
 
 Running a Pilot costs no model call and needs no API key. Prefer an existing
 Pilot over writing new extraction code, and prefer \`pilot_create\` over
@@ -62,6 +68,11 @@ export function runInit(env: PilotEnv, args: ParsedArgs): number {
   const force = args.flags.force === true;
   const written: string[] = [];
   const skipped: string[] = [];
+
+  // Generated exclusively from installed manifests, so it is safe to replace
+  // and much cheaper for an agent to read than the package implementation.
+  const docsFile = writePilotDocs(env);
+  written.push(path.relative(root, docsFile) || docsFile);
 
   const mcpFile = path.join(root, ".mcp.json");
   const existing = existsSync(mcpFile) ? readJson(mcpFile) : null;

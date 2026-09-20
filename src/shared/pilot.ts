@@ -64,6 +64,17 @@ export const pilotSchema = z.strictObject({
       attempts: z.number().int().positive(),
       /** Tool calls the explorer spent on the site. */
       steps: z.number().int().nonnegative().default(0),
+      /** Exact Responses API usage for the model work that produced this version. */
+      usage: z
+        .strictObject({
+          requests: z.number().int().nonnegative(),
+          inputTokens: z.number().int().nonnegative(),
+          cachedInputTokens: z.number().int().nonnegative(),
+          outputTokens: z.number().int().nonnegative(),
+          reasoningTokens: z.number().int().nonnegative(),
+          totalTokens: z.number().int().nonnegative(),
+        })
+        .optional(),
       repairedFrom: z.string().nullable().default(null),
       /**
        * Reference notes this compile was given, if any — e.g.

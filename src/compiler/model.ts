@@ -38,6 +38,41 @@ export interface ModelTurn {
   toolCalls: ToolCall[];
 }
 
+/** Token accounting accumulated across every Responses turn in one operation. */
+export interface ModelUsage {
+  requests: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+}
+
+export function emptyModelUsage(): ModelUsage {
+  return {
+    requests: 0,
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+export function addModelUsage(...items: readonly ModelUsage[]): ModelUsage {
+  return items.reduce(
+    (total, item) => ({
+      requests: total.requests + item.requests,
+      inputTokens: total.inputTokens + item.inputTokens,
+      cachedInputTokens: total.cachedInputTokens + item.cachedInputTokens,
+      outputTokens: total.outputTokens + item.outputTokens,
+      reasoningTokens: total.reasoningTokens + item.reasoningTokens,
+      totalTokens: total.totalTokens + item.totalTokens,
+    }),
+    emptyModelUsage(),
+  );
+}
+
 /** The nested Chat Completions tool shape `tools.ts` is written in. */
 export interface ChatStyleTool {
   type: "function";
@@ -50,6 +85,8 @@ export interface ChatStyleTool {
 
 export interface ModelClient {
   readonly model: string;
+  /** Present on the production client; optional so deterministic fakes stay small. */
+  readonly usage?: ModelUsage;
   turn(transcript: ResponseInput, tools: readonly ChatStyleTool[]): Promise<ModelTurn>;
 }
 
@@ -98,9 +135,11 @@ export function createModelClient(env: PilotEnv): ModelClient {
   const client = new OpenAI({ apiKey: env.openaiApiKey });
   const model = env.compilerModel;
   const effort = effortOf(env);
+  const usage = emptyModelUsage();
 
   return {
     model,
+    usage,
     async turn(transcript, tools) {
       let response;
       try {
@@ -121,6 +160,15 @@ export function createModelClient(env: PilotEnv): ModelClient {
       const output = response.output ?? [];
       if (output.length === 0) {
         throw pilotError("AI_REQUEST_FAILED", "Compiler model returned no output");
+      }
+
+      if (response.usage) {
+        usage.requests += 1;
+        usage.inputTokens += response.usage.input_tokens;
+        usage.cachedInputTokens += response.usage.input_tokens_details.cached_tokens;
+        usage.outputTokens += response.usage.output_tokens;
+        usage.reasoningTokens += response.usage.output_tokens_details.reasoning_tokens;
+        usage.totalTokens += response.usage.total_tokens;
       }
 
       const toolCalls: ToolCall[] = [];

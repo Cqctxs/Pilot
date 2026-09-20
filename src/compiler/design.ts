@@ -14,9 +14,11 @@
  */
 import {
   createModelClient,
+  emptyModelUsage,
   toolResult,
   type ChatStyleTool,
   type ModelClient,
+  type ModelUsage,
   type TranscriptItem,
 } from "./model.js";
 import { fieldSpecSchema, type FieldSpec } from "../shared/schema.js";
@@ -179,6 +181,7 @@ export interface DesignedCapability {
   fields: FieldSpec[];
   rationale: string | null;
   model: string;
+  usage: ModelUsage;
 }
 
 export type SelectedCapability =
@@ -187,6 +190,7 @@ export type SelectedCapability =
       definition: CapabilityDefinition;
       rationale: string | null;
       model: string;
+      usage: ModelUsage;
     }
   | {
       action: "create_new";
@@ -194,6 +198,7 @@ export type SelectedCapability =
       fields: FieldSpec[];
       rationale: string | null;
       model: string;
+      usage: ModelUsage;
     };
 
 /** One page, already read, offered to the design as an example implementation. */
@@ -296,6 +301,7 @@ export async function designCapability(options: {
     fields,
     rationale: typeof raw.rationale === "string" ? raw.rationale.trim() || null : null,
     model: client.model,
+    usage: client.usage ?? emptyModelUsage(),
   };
 }
 
@@ -364,7 +370,13 @@ export async function selectCapability(options: {
     if (raw.action === "use_existing") {
       const definition = candidates.find((candidate) => candidate.id === id);
       if (definition) {
-        return { action: "use_existing", definition, rationale, model: client.model };
+        return {
+          action: "use_existing",
+          definition,
+          rationale,
+          model: client.model,
+          usage: client.usage ?? emptyModelUsage(),
+        };
       }
       transcript.push(
         ...turn.raw,
@@ -377,7 +389,14 @@ export async function selectCapability(options: {
       const { fields, problems } = parseProposedFields(raw.fields);
       const duplicate = candidates.some((candidate) => candidate.id === id);
       if (CAPABILITY_ID_PATTERN.test(id) && !duplicate && fields.length >= 3) {
-        return { action: "create_new", id, fields, rationale, model: client.model };
+        return {
+          action: "create_new",
+          id,
+          fields,
+          rationale,
+          model: client.model,
+          usage: client.usage ?? emptyModelUsage(),
+        };
       }
       const reasons = [
         !CAPABILITY_ID_PATTERN.test(id)

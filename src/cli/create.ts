@@ -9,6 +9,7 @@ import { parseFieldList, type DataSchema } from "../shared/schema.js";
 import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import { toPilotError } from "../shared/errors.js";
 import type { PilotEnv } from "../shared/env.js";
+import { addModelUsage, emptyModelUsage } from "../compiler/model.js";
 import { flagNumber, flagString, type ParsedArgs } from "./args.js";
 import { Registry, withRegistry } from "../registry/client.js";
 import type { CapabilityEntry, RegistryEntry } from "../registry/types.js";
@@ -64,6 +65,7 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
   let newCapability = false;
   let automaticallyDesignedCapability = false;
   let selectedRemoteCapability: CapabilityDefinition | null = null;
+  let selectionUsage = emptyModelUsage();
   const registry = new CapabilityRegistry(env);
 
   if (fields) {
@@ -215,6 +217,7 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
       `  choosing from ${catalog.length} shared capabilit${catalog.length === 1 ? "y" : "ies"}\n`,
     );
     const selected = await selectCapability({ evidence, candidates: catalog, env });
+    selectionUsage = selected.usage;
     if (selected.action === "use_existing") {
       capability = selected.definition.id;
       schema = selected.definition.schema;
@@ -359,6 +362,8 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     env,
     onProgress: (message) => process.stderr.write(`  ${message}\n`),
   });
+  result.usage = addModelUsage(selectionUsage, result.usage);
+  if (result.pilot.compiler) result.pilot.compiler.usage = result.usage;
 
   if (newCapability && capability) {
     const definition = registry.ensure(
@@ -385,6 +390,10 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
   process.stdout.write(
     `\nCompiled ${id}@${result.pilot.version} (${transport}, ${result.steps} steps, ${result.attempts} attempt(s))\n` +
       `  ${result.records.length} records extracted\n` +
+      `  model usage: ${result.usage.totalTokens.toLocaleString("en-US")} tokens ` +
+      `(${result.usage.inputTokens.toLocaleString("en-US")} input, ` +
+      `${result.usage.outputTokens.toLocaleString("en-US")} output, ` +
+      `${result.usage.requests} request(s))\n` +
       `  ${dir}\n`,
   );
   const startingFields = new Set(schema.fields.map((field) => field.name));

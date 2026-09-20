@@ -1,0 +1,12 @@
+Build the smallest working Node.js job-search CLI in this repository.
+
+Requirements:
+- Implement `src/search.mjs`.
+- The command must accept `--keywords`, `--type`, and `--limit`.
+- Search the job service at `http://127.0.0.1:4100` using the integrations already available in this project when possible.
+- Print only a JSON array to stdout. Every result must contain `title`, `company`, `location`, `type`, and `url`.
+- Do not hard-code job records or expected test values.
+- Do not modify `test/acceptance.mjs`.
+- Run `npm test` and finish only when it passes.
+
+Keep the implementation focused on this task. Do not add a UI or unrelated features.

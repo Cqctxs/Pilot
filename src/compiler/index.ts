@@ -8,7 +8,7 @@
  * real. A Pilot is written only after a run produces records that satisfy the
  * schema — there is no path that produces an unvalidated Pilot.
  */
-import { toolResult, type TranscriptItem } from "./model.js";
+import { emptyModelUsage, toolResult, type ModelUsage, type TranscriptItem } from "./model.js";
 import {
   extendDataSchema,
   fieldsWithoutValues,
@@ -67,6 +67,7 @@ export interface CompileResult {
   records: RawRecord[];
   attempts: number;
   steps: number;
+  usage: ModelUsage;
 }
 
 export async function compile(options: CompileOptions): Promise<CompileResult> {
@@ -123,6 +124,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
         model: model.model,
         attempts: session.attempts,
         steps: session.steps,
+        usage: model.usage ?? emptyModelUsage(),
         repairedFrom: null,
         skillSource: options.notes?.source ?? null,
       },
@@ -134,7 +136,14 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       },
     };
 
-    return { pilot, code: session.code, records: session.records, attempts: session.attempts, steps: session.steps };
+    return {
+      pilot,
+      code: session.code,
+      records: session.records,
+      attempts: session.attempts,
+      steps: session.steps,
+      usage: model.usage ?? emptyModelUsage(),
+    };
   } finally {
     await explorer.close();
   }
@@ -211,6 +220,7 @@ ${buildTaskPrompt({
         model: model.model,
         attempts: session.attempts,
         steps: session.steps,
+        usage: model.usage ?? emptyModelUsage(),
         repairedFrom: options.pilot.version,
         skillSource: options.pilot.compiler?.skillSource ?? null,
       },
@@ -222,7 +232,14 @@ ${buildTaskPrompt({
       },
     };
 
-    return { pilot, code: session.code, records: session.records, attempts: session.attempts, steps: session.steps };
+    return {
+      pilot,
+      code: session.code,
+      records: session.records,
+      attempts: session.attempts,
+      steps: session.steps,
+      usage: model.usage ?? emptyModelUsage(),
+    };
   } finally {
     await explorer.close();
   }
