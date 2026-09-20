@@ -87,6 +87,15 @@ describe("pilot init", () => {
     }
   });
 
+  it("writes a compact generated API file instead of making agents inspect dependencies", () => {
+    const env = project();
+    runInit(env, parseArgs([]));
+    const docs = readFileSync(path.join(env.projectRoot, "PILOT.md"), "utf8");
+    expect(docs).toContain("# Pilot API");
+    expect(docs).toContain("do not inspect");
+    expect(docs).toContain("No Pilots are installed");
+  });
+
   it("appends to an existing AGENTS.md too, and only once", () => {
     const env = project();
     const file = path.join(env.projectRoot, "AGENTS.md");
