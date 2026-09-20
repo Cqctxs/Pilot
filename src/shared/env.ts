@@ -2,16 +2,35 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function findProjectRoot(
-  start = fileURLToPath(new URL(".", import.meta.url)),
-): string {
-  let dir = start;
+function nearestPackageRoot(start: string): string | null {
+  let dir = path.resolve(start);
   for (;;) {
     if (existsSync(path.join(dir, "package.json"))) return dir;
     const parent = path.dirname(dir);
-    if (parent === dir) throw new Error("Could not find project root (package.json)");
+    if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/**
+ * The project whose `pilots/`, `config/` and `.env` we should be using.
+ *
+ * This walks up from the working directory, not from this file. When Pilot is
+ * installed as a dependency, its own location is `node_modules/pilot`, and
+ * resolving against that sends a consumer's Pilots and capabilities into a
+ * directory `npm install` deletes — so the SDK only worked from a clone, or
+ * with PILOT_PILOTS_DIR and friends set by hand. The caller's project is the
+ * right answer, and inside this repo the two are the same directory anyway.
+ *
+ * Falling back to the module's own root keeps the unusual cases working: a
+ * caller running from a directory with no package.json above it at all.
+ */
+export function findProjectRoot(start = process.cwd()): string {
+  const fromCaller = nearestPackageRoot(start);
+  if (fromCaller) return fromCaller;
+  const fromModule = nearestPackageRoot(fileURLToPath(new URL(".", import.meta.url)));
+  if (fromModule) return fromModule;
+  throw new Error("Could not find project root (package.json)");
 }
 
 function envString(name: string, fallback: string): string {
