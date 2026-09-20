@@ -44,7 +44,7 @@ describe("fan-out ordering", () => {
   });
 
   it("exposes the capability surface the example depends on", () => {
-    const jobs = pilot().capability("jobs.board@1");
+    const jobs = pilot().capability("jobs.search@1");
     expect(typeof jobs.search).toBe("function");
     expect(Array.isArray(jobs.targets())).toBe(true);
   });

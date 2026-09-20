@@ -3,7 +3,8 @@ import { loadEnv } from "../shared/env.js";
 import { toPilotError } from "../shared/errors.js";
 import { parseArgs, flagNumber, flagString, assertKnownFlags } from "./args.js";
 import { runCreate } from "./create.js";
-import { runList } from "./list.js";
+import { runList, runOverview } from "./list.js";
+import { asCapabilityArgs, asRegistryArgs, kindOf } from "./route.js";
 import { runSearch } from "./search.js";
 import { runRepair } from "./repair.js";
 import { runCapabilities } from "./capabilities.js";
@@ -11,72 +12,81 @@ import { runFields } from "./fields.js";
 
 const HELP = `Pilot — compile any website into a reusable data API.
 
-  pilot create <url>            Reuse a published Pilot, or compile when missing
-    --id <name>                 Pilot id (default: derived from the hostname)
-    --name <label>              Human-readable target name
-    --capability <id>           Target a capability schema (default: jobs.board@1)
-    --fields <a,b,c>            Ad-hoc extraction instead of a capability
-    --query <text>              Sample query used while validating
-    --from-skill <ref>          Start from published notes about the site:
-                                a browse.sh skill (indeed.com/search-jobs-8yxl6y,
-                                or just indeed.com when it is unambiguous), or a
-                                local markdown file
-    --attempts <n>              Compile attempts before giving up (default: 3)
-    --compile                   Ignore registry matches and force a fresh compile
+  A capability is an interface (jobs.search). A Pilot implements it for one
+  site (linkedin). You write code against the capability, forever.
 
-  pilot list                    Show installed Pilots and whether they are enabled
-  pilot list <capability>       Show every published Pilot for a function type
-                               e.g. pilot list jobs.board@1
-  pilot capabilities            Show shared function types and schema versions
-  pilot capabilities show <id>  One capability, field by field
-  pilot capabilities add <id>   Declare a capability before any Pilot implements it
+CORE
+
+  pilot create <url>            Get a Pilot for a site — reuses a published one,
+                                compiles only when nobody has done it yet
+    --capability <id>           Interface it should implement (default: jobs.search)
+    --fields <a,b,c>            Ad-hoc extraction instead, for a one-off
+    --watch                     Show the browser while it explores
+    --compile                   Force a fresh compile even if a match exists
+
+  pilot create <capability>     Declare an interface before anything implements it
     --describe <text>           Design the fields from a plain description
-    --url <url>                 Design them from a real page of that kind;
-                                add --describe to say what you want off it
+    --url <url>                 Design them from a real page of that kind
     --fields <a,b,c>            name[:type][!][=description], ! marks required
-    --from <file.json>          Field definitions from a file instead
-    --dry-run                   Show the shape without declaring it
-  pilot capabilities publish <id>  Share the interface through the registry
-  pilot capabilities install <id>  Take someone else's interface (--force to replace)
-  pilot fields [targets...]     Which fields the selected Pilots return, and how
-                                many of them provide each one (--json)
-  pilot enable <id>             Include a Pilot in unqualified searches
-  pilot disable <id>            Exclude it
+    --dry-run                   Print the shape without keeping it
 
-  pilot search [targets...]     Run a search across Pilots
-    --capability <id>           Function type (default: jobs.board@1)
-    --keywords <text>           Filter by keywords
-    --location <text>           Filter by location
-    --type <type>               internship | full-time | part-time | contract
-    --limit <n>                 Max results per Pilot
-    --filter <field=value,...>  Filter generated fields, e.g. seniority=Senior
-    --param <field=value,...>   Parameters for non-job capabilities
-    --json                      Machine-readable output
+  pilot search [pilots...]      Run a search across every enabled Pilot
+    --keywords / --location     What to look for
+    --capability <id>           Interface to search (default: jobs.search)
+    --limit <n> --json          Cap per Pilot; machine-readable output
 
-  pilot repair <id>             Recompile a Pilot whose site changed
-  pilot testboard               Serve the local job board used for testing
+  pilot publish <pilot|capability>   Share it, so the next person skips compiling
+  pilot install [pilot|capability]   Take someone else's; bare, restores the lockfile
 
-  pilot publish <id>            Push a compiled Pilot to the shared registry
-  pilot install [id@version]    Install one, or restore pilot.lock.json
-  pilot outdated [ids...]       Compare installed versions with the registry
-  pilot update [ids...]         Install newer published versions (all by default)
-  pilot uninstall <ids...>      Remove every local version of a Pilot
-  pilot lock                    Snapshot installed versions into pilot.lock.json
-  pilot registry list           Every published Pilot, newest version
-  pilot registry search <text>  Find a Pilot by site, capability, or field
-  pilot registry versions <id>  Published versions of one Pilot
-  pilot registry health [id]    Success rate per Pilot, worst first
-  pilot registry capabilities   Every published capability, newest schema
+LOOK
 
-  pilot promptlab [--runs n]    A/B the compiler's system prompts
+  pilot ls                      Capabilities and the Pilots implementing them
+  pilot ls <capability>         Every published Pilot for that interface
+  pilot ls --remote             Everything in the registry
+  pilot show <pilot|capability> Fields, tier by tier
+  pilot health [pilot]          Success rate per Pilot, worst first
 
-  pilot mcp                     Serve Pilot over MCP (stdio) to Claude Code,
-                                Codex, or any other MCP client
+KEEP WORKING
+
+  pilot repair <pilot>          Recompile one whose site changed
+  pilot update [pilots...]      Install newer published versions
+  pilot rm <pilot|capability>   Remove it locally
+  pilot enable|disable <pilot>  Include or exclude from unqualified searches
+  pilot lock                    Snapshot versions into pilot.lock.json
+
+  pilot mcp                     Serve Pilot over MCP to Claude Code or Codex
+  pilot help --all              Everything, including the older spellings
 
 Examples:
-  pilot search                        every enabled Pilot
-  pilot search indeed                 just Indeed
-  pilot search indeed linkedin        both, merged and deduped
+  pilot create "https://www.talent.com/jobs?k=software+intern&l=Boston"
+  pilot search --keywords "software intern" --location Boston
+  pilot create hotels.search --describe "hotels I could book, with nightly price"
+`;
+
+const HELP_ALL = `Every command, including spellings kept for compatibility.
+
+  Same thing, older name:
+    pilot capabilities            = pilot ls
+    pilot capabilities show <id>  = pilot show <id>
+    pilot capabilities add <id>   = pilot create <id>
+    pilot capabilities publish    = pilot publish <id>
+    pilot capabilities install    = pilot install <id>
+    pilot capabilities rm <id>    = pilot rm <id>
+    pilot list                    = pilot ls
+    pilot uninstall <pilots...>   = pilot rm
+    pilot fields [pilots...]      = pilot show
+    pilot registry list           = pilot ls --remote
+    pilot registry health [id]    = pilot health
+
+  Not in the short help:
+    pilot registry search <text>  Find a Pilot by site, capability, or field
+    pilot registry versions <id>  Published versions of one Pilot
+    pilot registry capabilities   Every published capability
+    pilot outdated [pilots...]    Compare installed versions with the registry
+    pilot create --from-skill <ref>   Compile starting from published notes
+    pilot search --type <t> --filter <f=v> --param <f=v> --strict-location
+    pilot testboard [--layout a|b] [--hostile]  Local board used by the tests
+    pilot promptlab [--runs n]    A/B the compiler's system prompts
 `;
 
 /**
@@ -89,8 +99,14 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
   create: [
     "id", "name", "capability", "fields", "query", "location", "from-skill",
     "attempts", "steps", "compile", "watch",
+    // `create <capability>` declares an interface rather than compiling a site.
+    "describe", "url", "from", "dry-run", "json",
   ],
-  list: ["json"],
+  list: ["json", "remote"],
+  ls: ["json", "remote"],
+  show: ["json"],
+  rm: ["json", "force"],
+  health: ["json", "limit"],
   capabilities: ["fields", "from", "describe", "url", "dry-run", "force", "json"],
   fields: ["json"],
   enable: [],
@@ -101,7 +117,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
   ],
   repair: ["query", "failure"],
   publish: [],
-  install: [],
+  install: ["force"],
   outdated: ["json"],
   update: ["json"],
   uninstall: ["json"],
@@ -119,7 +135,7 @@ async function main(): Promise<number> {
   const env = loadEnv();
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
-    process.stdout.write(HELP);
+    process.stdout.write(args.flags.all === true || argv.includes("--all") ? HELP_ALL : HELP);
     return 0;
   }
 
@@ -127,10 +143,52 @@ async function main(): Promise<number> {
   if (known) assertKnownFlags(command, args, known);
 
   switch (command) {
-    case "create":
+    case "create": {
+      // A capability id here means "declare this interface"; anything else is a
+      // site to compile. Same verb, because both answer "make me a new thing".
+      const target = args.positional[0];
+      if (target && kindOf(target) === "capability") {
+        return runCapabilities(env, asCapabilityArgs(args, "add", target));
+      }
       return runCreate(env, args);
-    case "list":
+    }
+    case "ls":
+    case "list": {
+      const target = args.positional[0];
+      if (!target && !args.flags.remote) return runOverview(env, args);
+      if (args.flags.remote) {
+        const { runRegistry } = await import("./registry.js");
+        return runRegistry(env, asRegistryArgs(args, "list"));
+      }
       return runList(env, args);
+    }
+    case "show": {
+      const target = args.positional[0];
+      if (!target) {
+        process.stderr.write("Usage: pilot show <pilot|capability>\n");
+        return 1;
+      }
+      if (kindOf(target) === "capability") {
+        return runCapabilities(env, asCapabilityArgs(args, "show", target));
+      }
+      return runFields(env, args);
+    }
+    case "rm": {
+      const target = args.positional[0];
+      if (!target) {
+        process.stderr.write("Usage: pilot rm <pilot|capability>\n");
+        return 1;
+      }
+      if (kindOf(target) === "capability") {
+        return runCapabilities(env, asCapabilityArgs(args, "rm", target));
+      }
+      const { runUninstall } = await import("./packages.js");
+      return runUninstall(env, args);
+    }
+    case "health": {
+      const { runRegistry } = await import("./registry.js");
+      return runRegistry(env, asRegistryArgs(args, "health"));
+    }
     case "capabilities":
       return runCapabilities(env, args);
     case "fields":
@@ -154,10 +212,19 @@ async function main(): Promise<number> {
     case "repair":
       return runRepair(env, args);
     case "publish": {
+      const target = args.positional[0];
+      if (target && kindOf(target) === "capability") {
+        return runCapabilities(env, asCapabilityArgs(args, "publish", target));
+      }
       const { runPublish } = await import("./registry.js");
       return runPublish(env, args);
     }
     case "install": {
+      // Bare `install` restores pilot.lock.json, the npm-shaped default.
+      const target = args.positional[0];
+      if (target && kindOf(target) === "capability") {
+        return runCapabilities(env, asCapabilityArgs(args, "install", target));
+      }
       const { runInstall } = await import("./registry.js");
       return runInstall(env, args);
     }

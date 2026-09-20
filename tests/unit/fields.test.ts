@@ -25,14 +25,14 @@ const SENIORITY: FieldSpec = {
 
 const DEFINITION: CapabilityDefinition = {
   capabilityFormatVersion: 1,
-  id: "jobs.board@1",
+  id: "jobs.search@1",
   version: "1.1.0",
   // `salary` was promoted after two sites agreed on it; core is what shipped.
-  schema: { name: "jobs.board@1", fields: [...CORE, SALARY] },
+  schema: { name: "jobs.search@1", fields: [...CORE, SALARY] },
   coreFields: ["title", "url"],
 };
 
-function pilot(id: string, extras: FieldSpec[], capability: string | null = "jobs.board@1"): Pilot {
+function pilot(id: string, extras: FieldSpec[], capability: string | null = "jobs.search@1"): Pilot {
   return {
     pilotFormatVersion: 2,
     id,
@@ -51,7 +51,7 @@ function pilot(id: string, extras: FieldSpec[], capability: string | null = "job
   };
 }
 
-const definitions = new Map([["jobs.board@1", DEFINITION]]);
+const definitions = new Map([["jobs.search@1", DEFINITION]]);
 
 describe("describeFields", () => {
   it("tiers fields as core, shared, or site-local", () => {
@@ -104,7 +104,7 @@ describe("describeFields", () => {
       definitions,
     );
 
-    expect(groups.map((group) => group.capability)).toEqual(["jobs.board@1", null]);
+    expect(groups.map((group) => group.capability)).toEqual(["jobs.search@1", null]);
     const adhoc = groups[1]!;
     expect(adhoc.schemaVersion).toBeNull();
     expect(adhoc.fields.every((field) => field.tier === "local")).toBe(true);

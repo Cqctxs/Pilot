@@ -1,9 +1,9 @@
 {
   "capabilityFormatVersion": 1,
-  "id": "jobs.board@1",
+  "id": "jobs.search@1",
   "version": "1.0.0",
   "schema": {
-    "name": "jobs.board@1",
+    "name": "jobs.search@1",
     "fields": [
       {
         "name": "title",

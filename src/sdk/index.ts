@@ -1,7 +1,7 @@
 /**
  * The developer-facing API.
  *
- *   const jobs = pilot().capability("jobs.board@1");
+ *   const jobs = pilot().capability("jobs.search@1");
  *
  *   await jobs.search();                        // every enabled Pilot
  *   await jobs.search("indeed");                // just Indeed
@@ -16,6 +16,7 @@ import { PilotStore, type LoadedPilot } from "../pilots/store.js";
 import { executePilot } from "../runtime/execute.js";
 import { toPilotError, pilotError, type PilotError } from "../shared/errors.js";
 import { loadEnv, type PilotEnv } from "../shared/env.js";
+import { CapabilityRegistry, canonicalCapability } from "../capability/registry.js";
 import type { RawRecord } from "../shared/schema.js";
 import type { ScriptQuery } from "../runtime/script.js";
 import {
@@ -85,7 +86,7 @@ export interface GenericCapability {
 }
 
 export interface Pilot {
-  capability(id: typeof JOBS_CAPABILITY | "jobs.board" | "jobs"): JobsCapability;
+  capability(id: typeof JOBS_CAPABILITY | "jobs.search" | "jobs.board" | "jobs"): JobsCapability;
   capability(id: string): GenericCapability;
   store: PilotStore;
 }
@@ -135,7 +136,7 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
       targets() {
         return store
           .all()
-          .filter((item) => item.pilot.capability === JOBS_CAPABILITY)
+          .filter((item) => canonicalCapability(item.pilot.capability) === JOBS_CAPABILITY)
           .map((item) => ({
             id: item.pilot.id,
             name: item.pilot.target.name,
@@ -211,7 +212,7 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
       targets() {
         return store
           .all()
-          .filter((item) => item.pilot.capability === id)
+          .filter((item) => canonicalCapability(item.pilot.capability) === id)
           .map((item) => ({
             id: item.pilot.id,
             name: item.pilot.target.name,
@@ -271,13 +272,15 @@ export function pilot(env: PilotEnv = loadEnv()): Pilot {
     }
   }
 
-  function capability(id: typeof JOBS_CAPABILITY | "jobs.board" | "jobs"): JobsCapability;
+  function capability(id: typeof JOBS_CAPABILITY | "jobs.search" | "jobs.board" | "jobs"): JobsCapability;
   function capability(id: string): GenericCapability;
   function capability(id: string): JobsCapability | GenericCapability {
-    if (id === JOBS_CAPABILITY || id === "jobs.board" || id === "jobs") {
-      return jobsCapability();
-    }
-    return genericCapability(id);
+    // One resolution, here, so everything downstream compares full ids: the
+    // short name the caller typed becomes the installed major, and a renamed
+    // one becomes its current name.
+    const resolved = new CapabilityRegistry(env).resolve(id);
+    if (resolved === JOBS_CAPABILITY) return jobsCapability();
+    return genericCapability(resolved);
   }
 
   return {
@@ -305,9 +308,9 @@ function resolveCapabilityTargets(
   capability: string,
 ): LoadedPilot[] {
   const selected = ids.length === 0
-    ? store.enabled().filter((item) => item.pilot.capability === capability)
+    ? store.enabled().filter((item) => canonicalCapability(item.pilot.capability) === capability)
     : [...new Set(ids)].map((id) => store.get(id));
-  const wrong = selected.find((item) => item.pilot.capability !== capability);
+  const wrong = selected.find((item) => canonicalCapability(item.pilot.capability) !== capability);
   if (wrong) {
     throw pilotError(
       "INVALID_ARGUMENT",

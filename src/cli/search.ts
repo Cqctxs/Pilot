@@ -10,7 +10,7 @@ const TYPES: EmploymentType[] = ["internship", "full-time", "part-time", "contra
 
 export async function runSearch(env: PilotEnv, args: ParsedArgs): Promise<number> {
   const capability = flagString(args, "capability");
-  if (capability && capability !== JOBS_CAPABILITY && capability !== "jobs.board" && capability !== "jobs") {
+  if (capability && capability !== JOBS_CAPABILITY && capability !== "jobs.search" && capability !== "jobs.board" && capability !== "jobs") {
     return runGenericSearch(env, args, capability);
   }
 

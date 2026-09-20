@@ -147,14 +147,14 @@ describe("reading data", () => {
     const result = await client.callTool({ name: "pilot_fields", arguments: {} });
     const body = textOf(result);
 
-    expect(body).toContain("jobs.board@1");
+    expect(body).toContain("jobs.search@1");
     // One Pilot installed, so every capability field is core and fully covered.
     expect(body).toContain("title: string required [core] declared 1/1");
     const groups = structured(result).capabilities as Array<{
       capability: string;
       fields: Array<{ name: string; tier: string; available: number; total: number }>;
     }>;
-    expect(groups[0]?.capability).toBe("jobs.board@1");
+    expect(groups[0]?.capability).toBe("jobs.search@1");
     expect(groups[0]?.fields.every((field) => field.available === field.total)).toBe(true);
   });
 

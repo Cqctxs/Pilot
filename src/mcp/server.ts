@@ -17,7 +17,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { JOBS_CAPABILITY, JOBS_SCHEMA, type EmploymentType, type JobQuery } from "../capability/jobs.js";
 import { describeFields } from "../capability/fields.js";
-import { CapabilityRegistry, type CapabilityDefinition } from "../capability/registry.js";
+import { CapabilityRegistry, canonicalCapability, type CapabilityDefinition } from "../capability/registry.js";
 import { PilotStore } from "../pilots/store.js";
 import { Registry, withRegistry } from "../registry/client.js";
 import { executePilot } from "../runtime/execute.js";
@@ -171,7 +171,7 @@ export function buildServer(env: PilotEnv): McpServer {
     {
       title: "Search job boards",
       description:
-        "Search across every Pilot implementing jobs.board@1, merged and deduplicated. " +
+        "Search across every Pilot implementing jobs.search@1, merged and deduplicated. " +
         "Name specific Pilots in `targets` to limit the search, or leave it empty to use " +
         "every enabled one. This runs compiled code against the live sites — no model, " +
         "typically a few seconds.",
@@ -342,7 +342,7 @@ export function buildServer(env: PilotEnv): McpServer {
           const local = store.all().find(
             (item) =>
               item.pilot.id === pilotId &&
-              item.pilot.capability === resolvedCapability &&
+              canonicalCapability(item.pilot.capability) === resolvedCapability &&
               new URL(item.pilot.target.url).hostname.replace(/^www\./, "") ===
                 new URL(url).hostname.replace(/^www\./, ""),
           );

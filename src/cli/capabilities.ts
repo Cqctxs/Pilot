@@ -68,6 +68,7 @@ export async function runCapabilities(env: PilotEnv, args: ParsedArgs): Promise<
   const registry = new CapabilityRegistry(env);
 
   if (subcommand === "add") return add(env, registry, rest[0], args);
+  if (subcommand === "rm") return remove(env, registry, rest[0], args);
   if (subcommand === "show") return show(registry, rest[0], args);
   if (subcommand === "publish") return publish(env, registry, rest[0]);
   if (subcommand === "install") return install(env, registry, rest[0], args);
@@ -302,6 +303,51 @@ async function install(
   process.stdout.write(
     `Installed ${saved.id} at schema ${saved.version} from ${entry.publisher}\n` +
       `  ${saved.schema.fields.map((field) => field.name).join(", ")}\n`,
+  );
+  return 0;
+}
+
+/**
+ * Forget an interface.
+ *
+ * Refused while Pilots still implement it, because a Pilot whose capability
+ * has no definition cannot be validated, cannot be fanned out with its
+ * siblings, and cannot say what its `capabilitySchemaVersion` refers to — it
+ * would keep running and keep returning records, which is the failure mode
+ * this codebase is least willing to ship. `--force` is there for a definition
+ * declared by mistake, before anything implemented it.
+ */
+async function remove(
+  env: PilotEnv,
+  registry: CapabilityRegistry,
+  id: string | undefined,
+  args: ParsedArgs,
+): Promise<number> {
+  if (!id) {
+    process.stderr.write("Usage: pilot rm <capability>\n");
+    return 1;
+  }
+  const definition = registry.get(id);
+  const { PilotStore } = await import("../pilots/store.js");
+  const { canonicalCapability } = await import("../capability/registry.js");
+  const implementers = new PilotStore(env)
+    .all()
+    .filter((item) => canonicalCapability(item.pilot.capability) === definition.id)
+    .map((item) => item.pilot.id);
+
+  if (implementers.length > 0 && !args.flags.force) {
+    process.stderr.write(
+      `${definition.id} is implemented by ${implementers.join(", ")}.\n` +
+        `  Remove those Pilots first, or pass --force to leave them without an interface.\n`,
+    );
+    return 1;
+  }
+  registry.remove(definition.id);
+  process.stdout.write(
+    `Removed ${definition.id}\n` +
+      (implementers.length > 0
+        ? `  ${implementers.join(", ")} now implement an interface that is not defined here.\n`
+        : ""),
   );
   return 0;
 }

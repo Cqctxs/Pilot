@@ -6,10 +6,10 @@
     "name": "Talent.com",
     "url": "https://www.talent.com/jobs?k=software+intern&l=Boston"
   },
-  "capability": "jobs.board@1",
+  "capability": "jobs.search@1",
   "capabilitySchemaVersion": "1.0.0",
   "schema": {
-    "name": "jobs.board@1",
+    "name": "jobs.search@1",
     "fields": [
       {
         "name": "title",

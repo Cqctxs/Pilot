@@ -1,5 +1,5 @@
 /** Persistent shared schemas for capability/function types. */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { Pilot } from "../shared/pilot.js";
@@ -10,6 +10,54 @@ import { pilotError } from "../shared/errors.js";
 import type { PilotEnv } from "../shared/env.js";
 
 export const CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9.-]*@[1-9]\d*$/;
+
+/** `jobs.search` — the same id with the major version left off. */
+export const CAPABILITY_NAME_PATTERN = /^[a-z][a-z0-9.-]*$/;
+
+/**
+ * Ids that were renamed, and the ids they became.
+ *
+ * A capability id is written into every Pilot compiled against it and into
+ * every registry document, so a rename cannot be a find-and-replace — artifacts
+ * published before it, and Pilots on machines that have not updated, still say
+ * the old name. They keep resolving. The entry is cheap and permanent; the
+ * alternative is a Pilot that cannot find its own interface.
+ */
+const RENAMED: Readonly<Record<string, string>> = {
+  "jobs.board@1": "jobs.search@1",
+  "jobs.board": "jobs.search@1",
+  jobs: "jobs.search@1",
+};
+
+/**
+ * The current name for an id, without touching the disk.
+ *
+ * Use this on every comparison between a capability someone asked for and the
+ * one recorded in a Pilot: the Pilot may have been compiled, published or
+ * installed before a rename, and two spellings of one interface must not read
+ * as two interfaces. It deliberately does not expand a bare name — `@1` and
+ * `@2` really are different contracts, and guessing between them is the kind
+ * of silent mismatch this function exists to prevent.
+ */
+export function canonicalCapability(id: string | null | undefined): string | null {
+  if (!id) return null;
+  return RENAMED[id] ?? id;
+}
+
+/**
+ * Every id that means this capability, current name first.
+ *
+ * A registry document is written once and read forever, so a Pilot published
+ * as `jobs.board@1` still says so long after the interface was renamed. Queries
+ * ask for all of them; only new writes use the current name. This is also why
+ * renames are cheap here but not free — the list only ever grows.
+ */
+export function capabilityAliases(id: string): string[] {
+  const old = Object.entries(RENAMED)
+    .filter(([from, to]) => to === id && from !== id)
+    .map(([from]) => from);
+  return [id, ...old];
+}
 
 export const capabilityDefinitionSchema = z.strictObject({
   capabilityFormatVersion: z.literal(1),
@@ -73,6 +121,43 @@ export class CapabilityRegistry {
   }
 
   /**
+   * Turn what someone typed into the id actually stored on disk.
+   *
+   * The `@1` is a *major* version — the marker that says an interface changed
+   * shape incompatibly. That matters enormously to a stored artifact and almost
+   * never to the person at the keyboard, who has exactly one major installed
+   * and should be able to type `jobs.search`. So the suffix stays in every
+   * definition, every Pilot manifest and every registry document, and becomes
+   * optional in everything a human types. It is required again only when two
+   * majors are installed at once, which is precisely when leaving it off would
+   * be a guess.
+   */
+  resolve(id: string): string {
+    const renamed = RENAMED[id];
+    if (renamed) return renamed;
+    if (CAPABILITY_ID_PATTERN.test(id)) return id;
+    if (!CAPABILITY_NAME_PATTERN.test(id)) {
+      throw pilotError(
+        "INVALID_ARGUMENT",
+        `Invalid capability id "${id}". Use a name such as jobs.search, or jobs.search@2 ` +
+          `to pin a major version.`,
+      );
+    }
+    const installed = this.all().filter((definition) => definition.id.split("@")[0] === id);
+    if (installed.length > 1) {
+      throw pilotError(
+        "INVALID_ARGUMENT",
+        `${id} is installed at ${installed.length} major versions ` +
+          `(${installed.map((definition) => definition.id).join(", ")}). ` +
+          `They are different interfaces, so name the one you mean.`,
+      );
+    }
+    // Nothing installed resolves to @1 rather than failing: declaring a brand
+    // new capability is the main reason to type a name that is not there yet.
+    return installed[0]?.id ?? `${id}@1`;
+  }
+
+  /**
    * Declare a capability up front, before any Pilot implements it.
    *
    * This is the order the rest of the system assumes and the one `ensure`
@@ -83,7 +168,8 @@ export class CapabilityRegistry {
    * have already compiled against would change what their recorded
    * `capabilitySchemaVersion` refers to, so it is refused.
    */
-  define(id: string, schema: DataSchema): CapabilityDefinition {
+  define(rawId: string, schema: DataSchema): CapabilityDefinition {
+    const id = this.resolve(rawId);
     if (existsSync(this.fileFor(id))) {
       throw pilotError(
         "INVALID_ARGUMENT",
@@ -118,7 +204,16 @@ export class CapabilityRegistry {
     return parsed;
   }
 
-  ensure(id: string, seed: DataSchema): CapabilityDefinition {
+  /** Forget a local definition. Returns false if there was nothing to forget. */
+  remove(rawId: string): boolean {
+    const file = this.fileFor(rawId);
+    if (!existsSync(file)) return false;
+    rmSync(file);
+    return true;
+  }
+
+  ensure(rawId: string, seed: DataSchema): CapabilityDefinition {
+    const id = this.resolve(rawId);
     const file = this.fileFor(id);
     if (existsSync(file)) return this.readFile(file);
     const definition: CapabilityDefinition = {
@@ -164,7 +259,7 @@ export class CapabilityRegistry {
     >();
 
     for (const pilot of pilots) {
-      if (pilot.capability !== id) continue;
+      if (canonicalCapability(pilot.capability) !== canonicalCapability(id)) continue;
       for (const field of pilot.schemaExtensions) {
         if (sharedNames.has(field.name)) continue;
         let current = candidates.get(field.name);
@@ -217,14 +312,24 @@ export class CapabilityRegistry {
     return { definition: next, promoted, blocked };
   }
 
+  /**
+   * Where this capability lives, current name first.
+   *
+   * A rename has to work on machines that installed the definition under its
+   * old name — they have `jobs.board@1.json` on disk and nothing else, and
+   * resolving only forwards would tell them their own interface is missing. So
+   * reads accept whichever alias is actually present, and writes always land on
+   * the current name, which migrates a machine the first time it saves.
+   */
   private fileFor(id: string): string {
-    if (!CAPABILITY_ID_PATTERN.test(id)) {
-      throw pilotError(
-        "INVALID_ARGUMENT",
-        `Invalid capability id "${id}". Use a name such as jobs.board@1 or hotels.search@1.`,
-      );
+    const canonical = this.resolve(id);
+    const current = path.join(this.env.capabilitiesDir, `${canonical}.json`);
+    if (existsSync(current)) return current;
+    for (const alias of capabilityAliases(canonical).slice(1)) {
+      const older = path.join(this.env.capabilitiesDir, `${alias}.json`);
+      if (existsSync(older)) return older;
     }
-    return path.join(this.env.capabilitiesDir, `${id}.json`);
+    return current;
   }
 
   private readFile(file: string): CapabilityDefinition {

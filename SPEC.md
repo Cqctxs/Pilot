@@ -20,7 +20,7 @@ validated extraction script for an arbitrary set of fields. Capability-agnostic:
 `--fields title,price,url` against a shop is as valid a test as a job board.
 **Done.**
 
-**Stage 2 — job search at scale.** The `jobs.board@1` capability and Pilots for
+**Stage 2 — job search at scale.** The `jobs.search@1` capability and Pilots for
 real boards — **LinkedIn** and **Talent.com**. The fan-out API: one call, many
 boards, merged and deduped. **Done.**
 
@@ -35,7 +35,7 @@ a break.
 | Compiler | Explore a site with a browser, write a script, run it for real, retry on failure |
 | Artifact | An ES module exporting `search(page, query)`, plus metadata |
 | Runtime | Loads and runs a compiled script. No model calls |
-| Capability | A named schema plus its normalization rules. `jobs.board@1` is the first |
+| Capability | A named schema plus its normalization rules. `jobs.search@1` is the first |
 | SDK | In-process TypeScript API with variadic target selection |
 | CLI | `create`, `list`, `enable`/`disable`, `search`, `repair`, `testboard` |
 | Test board | A local job board with two layouts, for controlled break-and-repair |
@@ -72,7 +72,7 @@ src/
   shared/      schema, Pilot artifact, errors, env
   compiler/    explorer (browser tools), model client, validate, the loop
   runtime/     loads and runs compiled scripts
-  capability/  jobs.board@1: schema, normalization, filtering, dedupe
+  capability/  jobs.search@1: schema, normalization, filtering, dedupe
   pilots/      directory-backed Pilot store
   sdk/         the developer-facing API
   cli/         thin wrapper over the SDK
@@ -92,7 +92,7 @@ different sites comparable. Applications target the capability, never a site.
 ```ts
 import { pilot } from "./src/sdk/index.js";
 
-const jobs = pilot().capability("jobs.board@1");
+const jobs = pilot().capability("jobs.search@1");
 
 await jobs.search();                        // every enabled Pilot
 await jobs.search("linkedin");              // just LinkedIn
@@ -380,7 +380,7 @@ directory scan, publishing is a commit, inspecting is `cat`.
   "id": "linkedin",
   "version": "1.0.0",
   "target": { "name": "LinkedIn", "url": "https://www.linkedin.com/jobs/search" },
-  "capability": "jobs.board@1",
+  "capability": "jobs.search@1",
   "capabilitySchemaVersion": "1.1.0",
   "schema": { "...": "copied in, so a Pilot is self-describing" },
   "schemaExtensions": [{ "name": "industries", "type": "string", "required": false, "description": "Industries shown by the source" }],
@@ -507,7 +507,7 @@ over stdio.
 | Tool | Notes |
 | --- | --- |
 | `pilot_list` | Installed Pilots and their fields |
-| `pilot_search` | jobs.board@1 across sources, merged |
+| `pilot_search` | jobs.search@1 across sources, merged |
 | `pilot_run` | Any Pilot, raw records — for ad-hoc schemas |
 | `pilot_create` | Compile a new site. Slow (minutes). |
 | `pilot_repair` | Reproduces the failure first; no-ops if the Pilot still works |

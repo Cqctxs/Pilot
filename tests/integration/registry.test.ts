@@ -378,7 +378,7 @@ describe("package lifecycle", () => {
           "--id",
           "reuseboard",
           "--capability",
-          "jobs.board@1",
+          "jobs.search@1",
         ]),
       );
       expect(exitCode).toBe(0);

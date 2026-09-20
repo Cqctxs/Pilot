@@ -111,7 +111,7 @@ describe("compiling with reference notes", () => {
 
     // The notes declared {postings:[{role, employer}]} and then demanded an
     // array of strings. Neither survived: the capability is still the contract.
-    expect(loaded.pilot.capability).toBe("jobs.board@1");
+    expect(loaded.pilot.capability).toBe("jobs.search@1");
     const records = await executePilot(loaded, { query: { keywords: "engineer" } });
     expect(records.length).toBeGreaterThan(0);
     for (const record of records) {

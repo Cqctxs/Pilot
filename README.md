@@ -7,7 +7,7 @@ extraction until it works, and writes a script. From then on that script runs on
 its own — no model call, no per-request AI cost, no nondeterminism.
 
 ```ts
-const jobs = pilot().capability("jobs.board@1");
+const jobs = pilot().capability("jobs.search@1");
 
 await jobs.search();                        // every enabled board
 await jobs.search("linkedin");              // just LinkedIn
@@ -45,7 +45,7 @@ system has no API, you are left with brittle browser automation or nothing.
 individual Pilots implement it for specific software:
 
 ```text
-jobs.board@1
+jobs.search@1
 ├── linkedin      (no browser — found the guest endpoint)
 ├── talent        (browser — server-rendered, 3 pages)
 └── testboard
@@ -156,7 +156,7 @@ npm run build
 npm link
 
 pilot list
-pilot list jobs.board@1
+pilot list jobs.search@1
 pilot install linkedin
 ```
 
@@ -373,7 +373,7 @@ src/
   shared/      schema, Pilot artifact, errors, env
   compiler/    explorer, model client, validate, the loop
   runtime/     loads and runs compiled scripts
-  capability/  jobs.board@1: schema, normalization, filtering, dedupe
+  capability/  jobs.search@1: schema, normalization, filtering, dedupe
   pilots/      directory-backed Pilot store
   registry/    MongoDB-backed publish, install, search, health
   mcp/         MCP server — the same operations, for agents

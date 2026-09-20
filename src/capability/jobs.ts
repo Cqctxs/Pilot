@@ -1,5 +1,5 @@
 /**
- * jobs.board@1 — the first capability.
+ * jobs.search@1 — the first capability.
  *
  * A capability is two things: a schema the compiler targets, and the
  * deterministic normalization that turns extracted strings into typed records.
@@ -8,7 +8,7 @@
  */
 import type { DataSchema, FieldSpec, RawRecord } from "../shared/schema.js";
 
-export const JOBS_CAPABILITY = "jobs.board@1" as const;
+export const JOBS_CAPABILITY = "jobs.search@1" as const;
 
 export const JOBS_SCHEMA: DataSchema = {
   name: JOBS_CAPABILITY,
