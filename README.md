@@ -468,10 +468,3 @@ pilots/        compiled Pilots — plain files, committed
 Pilot against the local board, with no model and no external network.
 
 ---
-
-## A note on targets
-
-Indeed, SimplyHired, Glassdoor and ZipRecruiter all block automated access
-outright — verified, not assumed. LinkedIn and Talent.com both work. Pilot reads
-only, keeps volume low, identifies itself honestly, and does not work around
-anti-bot measures. See [SPEC.md](SPEC.md) §13.
