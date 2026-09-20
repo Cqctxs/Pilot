@@ -63,3 +63,39 @@ This measures the tokens the outer coding agent needs to build the application.
 It is separate from the one-time Responses API usage of `pilot create`. A warm
 Pilot execution itself makes zero compiler-model calls; the coding agent still
 uses some tokens to understand the task and write the small application.
+
+## Visible two-window live demo
+
+The judged demo can use LinkedIn, ZipRecruiter, and Talent instead of the local
+testboard. It creates two projects with `npm init`, opens two visible PowerShell
+windows, runs the same Codex prompt concurrently, executes the same acceptance
+test, and compares the `turn.completed` token counts. The warm project installs
+all three Pilots from the configured registry; it does not copy artifacts from
+this repository.
+
+The visible output is intentionally concise: every setup command and every
+command Codex runs is shown, the complete identical prompt is printed in both
+windows, and successful command bodies are hidden. Full Codex event output
+remains in the raw trace. Each result separates project setup time, Codex
+implementation time, acceptance-test time, and total elapsed time.
+
+After both runs finish, their windows remain open as ordinary interactive
+PowerShell sessions in the generated project folders. Both can rerun the app or
+`npm test`; the warm window can also run `npx pilot search ...` directly to
+show live jobs from the installed Pilots.
+
+Preview the setup without changing anything:
+
+```powershell
+npm run demo:tokens:visible -- -WhatIf
+```
+
+Run it:
+
+```powershell
+npm run demo:tokens:visible
+```
+
+The live version is presentation evidence, not the controlled benchmark:
+public sites can change markup or block one session independently. Its raw
+Codex JSONL traces and result files are kept under `.pilot-live-demo/`.

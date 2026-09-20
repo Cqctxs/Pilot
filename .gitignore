@@ -5,3 +5,4 @@ dist/
 examples/
 backups/
 .pilot-benchmark/
+.pilot-live-demo/

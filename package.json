@@ -37,6 +37,7 @@
     "test": "vitest run",
     "test:matrix": "vitest run --config vitest.matrix.config.ts",
     "benchmark:tokens": "npm run build && node benchmarks/token-savings/run.mjs",
+    "demo:tokens:visible": "powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks/token-savings/demo.ps1",
     "promptlab": "tsx src/cli/main.ts promptlab",
     "test:live": "vitest run --config vitest.live.config.ts"
   },

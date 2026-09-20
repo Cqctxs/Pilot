@@ -1,0 +1,16 @@
+Build the smallest working Node.js job-search CLI in this repository.
+
+Requirements:
+- Implement `src/search.mjs`.
+- The command must accept `--keywords`, `--location`, and `--limit`.
+- Search LinkedIn, ZipRecruiter, and Talent.com concurrently using integrations already available in this project when possible.
+- One source failing must not prevent the other sources from returning results.
+- Print only one JSON object to stdout with this shape:
+  `{ "jobs": [...], "sources": [...] }`
+- Every job must contain `source`, `title`, `company`, `location`, `type`, and `url`.
+- `sources` must contain one status for each requested source: `linkedin`, `ziprecruiter`, and `talent`.
+- Do not hard-code job records, source results, or expected test values.
+- Do not modify `test/acceptance.mjs`.
+- Run `npm test` and finish only when it passes.
+
+Keep the implementation focused on this task. Do not add a UI or unrelated features.
