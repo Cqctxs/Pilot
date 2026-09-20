@@ -1,0 +1,14 @@
+# One line ending in the repository, whatever the checkout looks like.
+#
+# Without this, two people on different platforms — or one person whose editor
+# and whose tooling disagree — produce whole-file diffs that hide the real
+# change. Everything here is text, so normalise it all and let Git hand out
+# native endings on checkout.
+* text=auto eol=lf
+
+# Generated extraction scripts are executed as-is; keeping them LF means the
+# bytes a reviewer reads are the bytes that ran.
+*.mjs text eol=lf
+*.ts  text eol=lf
+*.json text eol=lf
+*.md  text eol=lf
