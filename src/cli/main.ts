@@ -31,6 +31,8 @@ const HELP = `Pilot — compile any website into a reusable data API.
   pilot capabilities show <id>  One capability, field by field
   pilot capabilities add <id>   Declare a capability before any Pilot implements it
     --describe <text>           Design the fields from a plain description
+    --url <url>                 Design them from a real page of that kind;
+                                add --describe to say what you want off it
     --fields <a,b,c>            name[:type][!][=description], ! marks required
     --from <file.json>          Field definitions from a file instead
     --dry-run                   Show the shape without declaring it
@@ -89,7 +91,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     "attempts", "steps", "compile", "watch",
   ],
   list: ["json"],
-  capabilities: ["fields", "from", "describe", "dry-run", "force", "json"],
+  capabilities: ["fields", "from", "describe", "url", "dry-run", "force", "json"],
   fields: ["json"],
   enable: [],
   disable: [],

@@ -128,6 +128,7 @@ async function add(
   if (!id) {
     process.stderr.write(
       "Usage: pilot capabilities add <id> --describe <text>\n" +
+        "       pilot capabilities add <id> --url <url> [--describe <text>]\n" +
         "       pilot capabilities add <id> --fields <a,b,c>\n" +
         "       pilot capabilities add <id> --from <file.json>\n",
     );
@@ -136,18 +137,31 @@ async function add(
   const from = flagString(args, "from");
   const fields = flagString(args, "fields");
   const describe = flagString(args, "describe");
-  if (!from && !fields && !describe) {
-    process.stderr.write("pilot capabilities add needs --describe, --fields or --from\n");
+  const url = flagString(args, "url");
+  if (!from && !fields && !describe && !url) {
+    process.stderr.write("pilot capabilities add needs --describe, --url, --fields or --from\n");
     return 1;
   }
 
   let schema: DataSchema;
   let rationale: string | null = null;
-  if (describe) {
+  if (describe || url) {
     // The only path here that costs a model call, so say so before spending it.
-    process.stderr.write(`  designing ${id} from your description\n`);
-    const { designCapability } = await import("../compiler/design.js");
-    const designed = await designCapability({ id, description: describe, env });
+    const { capturePage, designCapability } = await import("../compiler/design.js");
+    // A page is an example, not the specification — it grounds the names and
+    // units in what these sites really publish, while the description (when
+    // there is one) says which of the things on that page you actually want.
+    let evidence = null;
+    if (url) {
+      process.stderr.write(`  reading ${url}\n`);
+      evidence = await capturePage(url);
+    }
+    process.stderr.write(
+      `  designing ${id} from ${[describe ? "your description" : null, url ? "the page" : null]
+        .filter(Boolean)
+        .join(" and ")}\n`,
+    );
+    const designed = await designCapability({ id, description: describe ?? "", evidence, env });
     schema = dataSchemaSchema.parse({ name: id, fields: designed.fields });
     rationale = designed.rationale;
   } else if (from) {
@@ -159,6 +173,12 @@ async function add(
   // Proposed, not saved. A capability's shape is a contract every future Pilot
   // compiles against, so a generated one is worth reading before it becomes one.
   if (args.flags["dry-run"] === true) {
+    // Repeat back the invocation that produced this, so "keep it" and "edit it"
+    // are the same design rather than a second, differently-worded one.
+    const origin =
+      [describe ? `--describe ${JSON.stringify(describe)}` : null, url ? `--url ${url}` : null]
+        .filter(Boolean)
+        .join(" ") || (from ? `--from ${from}` : `--fields ${JSON.stringify(fields)}`);
     // JSON rather than a --fields string: generated descriptions are full
     // sentences and routinely contain commas, which the --fields DSL splits on.
     // A file is also the thing you would want to edit before committing to it.
@@ -172,8 +192,8 @@ async function add(
           .map((field) => `  ${field.name}${field.required ? "*" : ""} (${field.type}): ${field.description}\n`)
           .join("") +
         (rationale ? `\n  ${rationale}\n` : "") +
-        `\nKeep it:     pilot capabilities add ${id} --describe "..."\n` +
-        `Edit first:  pilot capabilities add ${id} --describe "..." --dry-run --json > ${id}.json\n` +
+        `\nKeep it:     pilot capabilities add ${id} ${origin}\n` +
+        `Edit first:  pilot capabilities add ${id} ${origin} --dry-run --json > ${id}.json\n` +
         `             pilot capabilities add ${id} --from ${id}.json\n`,
     );
     return 0;

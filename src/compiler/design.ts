@@ -99,6 +99,13 @@ Rules that matter:
 - Descriptions are written into every future compiler prompt for this
   capability. A vague one produces a vague extraction.
 
+When a page is shown to you, it is one implementation, not the specification.
+Use it to ground names and units in what these sites actually publish, and to
+notice fields you would otherwise have missed. Do not add a field merely
+because this page has it — ask first whether a competing site would have it
+too, and if the answer is no, leave it out and say so in your rationale. The
+compiler will pick up site-specific extras later, from evidence.
+
 Call propose_capability exactly once.`;
 
 export interface DesignedCapability {
@@ -107,14 +114,45 @@ export interface DesignedCapability {
   model: string;
 }
 
+/** One page, already read, offered to the design as an example implementation. */
+export interface PageEvidence {
+  url: string;
+  /** What `Explorer.goto` saw: status, title and visible text, already clipped. */
+  text: string;
+}
+
+/**
+ * Read one page so a design can be grounded in a real implementation.
+ *
+ * Deliberately a single navigation and nothing else. This is not the compiler's
+ * exploration loop — no clicking, no searching, no selector testing — because
+ * the question being asked is "what does this kind of page publish", and the
+ * first screen answers it. Anything more is a compile, and a compile needs a
+ * capability to compile against.
+ */
+export async function capturePage(url: string): Promise<PageEvidence> {
+  const { openExplorer } = await import("./explorer.js");
+  const explorer = await openExplorer({ headless: true });
+  try {
+    const seen = await explorer.goto(url);
+    if (seen.startsWith("navigation failed")) {
+      throw pilotError("SOURCE_UNAVAILABLE", `Could not read ${url}: ${seen.slice(20)}`);
+    }
+    return { url: explorer.currentUrl(), text: seen };
+  } finally {
+    await explorer.close();
+  }
+}
+
 /** Turn a plain-language description into a proposed field list. */
 export async function designCapability(options: {
   id: string;
   description: string;
+  evidence?: PageEvidence | null;
   env: PilotEnv;
 }): Promise<DesignedCapability> {
   const description = options.description.trim();
-  if (!description) {
+  if (!description && !options.evidence) {
     throw pilotError("INVALID_ARGUMENT", "--describe needs a sentence describing the capability.");
   }
 
@@ -125,7 +163,14 @@ export async function designCapability(options: {
       role: "user",
       content:
         `Capability id: ${options.id}\n\n` +
-        `What it should return:\n${description}\n\n` +
+        (description
+          ? `What it should return:\n${description}\n\n`
+          : `No description was given — read the intent off the page below.\n\n`) +
+        (options.evidence
+          ? `One site that would implement this, ${options.evidence.url}:\n\n` +
+            `${options.evidence.text}\n\n` +
+            `Remember this is one of many implementations.\n\n`
+          : "") +
         `Propose the field list.`,
     },
   ];

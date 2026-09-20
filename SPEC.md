@@ -292,6 +292,15 @@ Redefining an existing capability is refused — its shape is what every Pilot's
 recorded `capabilitySchemaVersion` refers to, so a change of shape is a new
 major version.
 
+Knowing the shape in advance is the hard part, so `add` will also design one:
+`--describe <text>` from a sentence, `--url <url>` from one real page of that
+kind, or both together — the description saying which of the things on that page
+belong in the interface. A page is read exactly once, with no exploration; it
+grounds names and units in what these sites actually publish, and the design is
+told to treat it as one implementation rather than the specification. Either way
+the result is a proposal: `--dry-run` prints it without writing, and
+`--dry-run --json` emits a file to edit and feed back through `--from`.
+
 The other direction still works: `pilot create --capability <id>` against an id
 nobody has declared hands the model an empty draft and asks it to design the
 schema from what the site shows, then persists what survived validation. That is
@@ -396,7 +405,8 @@ pilot create <url> [--id x] [--name x] [--capability function.type@1] [--fields 
 pilot list [capability] [--json]  # no capability: installed; capability: published
 pilot capabilities [--json]
 pilot fields [targets...] [--json]
-pilot capabilities add <id> (--fields <spec> | --from <file>)
+pilot capabilities add <id> (--fields <spec> | --from <file> | --describe <text> | --url <url>)
+                   [--dry-run] [--json]
 pilot capabilities show <id> [--json]
 pilot capabilities publish <id>
 pilot capabilities install <id>[/<schema version>] [--force]

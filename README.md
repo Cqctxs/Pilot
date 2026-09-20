@@ -126,6 +126,8 @@ pilot capabilities            Shared schemas and their versions
 pilot fields [targets...]     Which fields the selected Pilots return
 pilot create <url> --from-skill <ref>   Compile starting from published notes
 pilot capabilities add <id>   Declare a capability before anything implements it
+                              --fields --from, or --describe <text> / --url <url>
+                              to have the shape designed (--dry-run to just look)
 pilot capabilities publish    Share the interface; install takes someone else's
 pilot enable|disable <id>     Include or exclude from unqualified searches
 pilot search [targets...]     --keywords --location --type --limit --filter --json
