@@ -40,6 +40,35 @@ export async function openExplorer(options: { headless?: boolean } = {}): Promis
   const context = await browser.newContext({ userAgent: USER_AGENT });
   const page = await context.newPage();
   const captured: CapturedRequest[] = [];
+  /** `--watch` only. Every selector the model tries is invisible otherwise. */
+  const visible = options.headless === false;
+
+  /**
+   * Outline what a selector matched, for a person watching the window.
+   *
+   * Done with a stylesheet keyed on the model's own selector rather than by
+   * setting styles or classes on the elements, so nothing an element reports
+   * about itself changes. `find` hands the model each match's `outerHTML`, and
+   * a later step may read `document.body.innerHTML` wholesale — an injected
+   * attribute would end up in both, and a selector written against it would be
+   * a selector for a highlight that only exists while someone is watching.
+   * A `<style>` in the head appears in neither.
+   */
+  async function show(selector: string): Promise<void> {
+    if (!visible) return;
+    try {
+      await page.$$eval(selector, (elements) =>
+        elements[0]?.scrollIntoView({ block: "center", behavior: "smooth" }),
+      );
+      const style = await page.addStyleTag({
+        content: `${selector} { outline: 3px solid #ff3b30 !important; outline-offset: 2px; }`,
+      });
+      await page.waitForTimeout(700);
+      await style.evaluate((node) => node.remove());
+    } catch {
+      // Cosmetic. A selector that cannot be highlighted still gets reported.
+    }
+  }
 
   // Record JSON traffic as the model navigates. If the site turns out to be
   // JSON underneath, the script it writes can skip the browser entirely.
@@ -92,6 +121,9 @@ export async function openExplorer(options: { headless?: boolean } = {}): Promis
         );
         const total = await page.$$eval(selector, (elements) => elements.length);
         if (total === 0) return `0 elements matched "${selector}"`;
+        // After the results are read, never before: highlighting is for the
+        // person watching, and must not reach what the model is told.
+        await show(selector);
         return clip(`${total} elements matched "${selector}". First ${results.length}:\n${JSON.stringify(results, null, 2)}`);
       } catch (cause) {
         return `invalid selector "${selector}": ${(cause as Error).message}`;

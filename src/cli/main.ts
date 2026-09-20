@@ -51,6 +51,7 @@ LOOK
 KEEP WORKING
 
   pilot repair <pilot>          Recompile one whose site changed
+    --watch                     Show the browser while it rediscovers the page
   pilot update [pilots...]      Install newer published versions
   pilot rm <pilot|capability>   Remove it locally
   pilot enable|disable <pilot>  Include or exclude from unqualified searches
@@ -110,7 +111,7 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     "capability", "keywords", "location", "type", "limit", "filter", "param",
     "strict-location", "json", "no-report",
   ],
-  repair: ["query", "failure"],
+  repair: ["query", "failure", "watch"],
   publish: [],
   install: ["force"],
   outdated: ["json"],

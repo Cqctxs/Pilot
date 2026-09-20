@@ -155,6 +155,8 @@ export async function repair(options: {
   maxAttempts?: number;
   maxSteps?: number;
   promptStyle?: PromptStyle;
+  /** Show the browser. A repair is the run where watching is most useful. */
+  headless?: boolean;
   env?: PilotEnv;
   onProgress?: (message: string) => void;
 }): Promise<CompileResult> {
@@ -168,7 +170,7 @@ export async function repair(options: {
   const startingSchema = extendDataSchema(baseSchema, previousExtensions).schema;
   const apiIntegration = apiIntegrationFor(options.pilot.target.url);
 
-  const explorer = await openExplorer();
+  const explorer = await openExplorer({ headless: options.headless ?? true });
   try {
     const session = await runSession({
       model,
