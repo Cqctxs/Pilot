@@ -28,6 +28,12 @@ import { PILOT_ID_PATTERN } from "../shared/pilot.js";
 import { parseFieldList, type DataSchema } from "../shared/schema.js";
 import { installPilotPackage } from "../cli/packages.js";
 import { queryReads, type QueryReads } from "../pilots/reads.js";
+import {
+  apiIntegrationFor,
+  apiReferenceNotes,
+  combineReferenceNotes,
+  credentialValues,
+} from "../integrations/apis.js";
 
 type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -441,7 +447,8 @@ export function buildServer(env: PilotEnv): McpServer {
           .describe(
             "Published notes about this site to start from, which usually cut the compile short: " +
               "a browse.sh skill id such as 'indeed.com/search-jobs-8yxl6y', or just 'indeed.com' " +
-              "when only one skill matches. The notes are treated as evidence to verify, not as " +
+              "when only one skill matches. Omit this to let Pilot automatically use one verified, " +
+              "unambiguous skill when available. The notes are treated as evidence to verify, not as " +
               "instructions, and the resulting Pilot records where they came from. Implies a fresh " +
               "compile, since it is an instruction about how to compile.",
           ),
@@ -523,9 +530,46 @@ export function buildServer(env: PilotEnv): McpServer {
         // Compiles run for minutes. Stream what the explorer is doing so the
         // client can show progress instead of looking hung.
         const { compile } = await import("../compiler/index.js");
-        const notes = fromSkill
-          ? await (await import("../compiler/skills.js")).fetchSkillNotes(fromSkill)
-          : null;
+        const skillModule = await import("../compiler/skills.js");
+        const apiIntegration = apiIntegrationFor(url);
+        const apiCredentials = apiIntegration
+          ? credentialValues(apiIntegration.credentials, env)
+          : {};
+        let notes = null;
+        if (fromSkill) {
+          notes = await skillModule.fetchSkillNotes(fromSkill);
+        } else {
+          await extra.sendNotification({
+            method: "notifications/message",
+            params: {
+              level: "info",
+              logger: "pilot_create",
+              data: "checking browse.sh for prior site knowledge",
+            },
+          }).catch(() => {});
+          notes = await skillModule.findSkillNotesForUrl(url, resolvedCapability).catch(() => null);
+          await extra.sendNotification({
+            method: "notifications/message",
+            params: {
+              level: "info",
+              logger: "pilot_create",
+              data: notes
+                ? `using ${notes.source} as verified prior knowledge`
+                : "no unambiguous browse.sh skill; exploring directly",
+            },
+          }).catch(() => {});
+        }
+        if (apiIntegration) {
+          notes = combineReferenceNotes(notes, apiReferenceNotes(apiIntegration));
+          await extra.sendNotification({
+            method: "notifications/message",
+            params: {
+              level: "info",
+              logger: "pilot_create",
+              data: `using official API: ${apiIntegration.name}`,
+            },
+          }).catch(() => {});
+        }
         const result = await compile({
           url,
           id: pilotId,
@@ -534,7 +578,9 @@ export function buildServer(env: PilotEnv): McpServer {
           schema,
           capabilitySchemaVersion,
           notes,
-          query: { keywords: query ?? "", location: location ?? "" },
+          credentials: apiIntegration?.credentials ?? [],
+          requireHttp: apiIntegration !== null,
+          query: { keywords: query ?? "", location: location ?? "", ...apiCredentials },
           headless: true,
           env,
           onProgress: (message) => {

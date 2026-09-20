@@ -20,7 +20,7 @@ const HELP = `Pilot — compile any website into a reusable data API.
 CORE
 
   pilot create <url>            Get a Pilot for a site — reuses a published one,
-                                compiles only when nobody has done it yet
+                                otherwise checks browse.sh and compiles
     --capability <id>           Pin the interface instead of choosing it automatically
     --fields <a,b,c>            Ad-hoc extraction instead, for a one-off
     --watch                     Show the browser while it explores

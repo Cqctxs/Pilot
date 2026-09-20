@@ -82,6 +82,18 @@ describe("publishing", () => {
     expect((await registry.fetch(pilot.id)).code).toContain("// edited");
   });
 
+  it("removes only an exact version owned by the current publisher", async () => {
+    const { pilot, code } = fixture();
+    const disposable = { ...pilot, id: "disposable-board" };
+    await registry.publish({ pilot: disposable, code });
+
+    expect(await registry.unpublish(disposable.id, disposable.version)).toBe(true);
+    await expect(registry.fetch(disposable.id, disposable.version)).rejects.toThrow(
+      /no disposable-board@1\.0\.0/i,
+    );
+    expect(await registry.unpublish(disposable.id, disposable.version)).toBe(false);
+  });
+
   it("lists only the newest version of each Pilot", async () => {
     const { pilot, code } = fixture();
     await registry.publish({ pilot: { ...pilot, version: "1.1.0" }, code });

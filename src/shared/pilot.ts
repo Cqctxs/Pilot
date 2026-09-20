@@ -23,6 +23,14 @@ export const scriptArtifactSchema = z.strictObject({
   needsBrowser: z.boolean(),
 });
 
+export const credentialRequirementSchema = z.strictObject({
+  env: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  description: z.string().min(1),
+  signupUrl: z.string().url().nullable().default(null),
+});
+
+export type CredentialRequirement = z.infer<typeof credentialRequirementSchema>;
+
 export const pilotSchema = z.strictObject({
   pilotFormatVersion: z.literal(2),
   id: z.string().regex(PILOT_ID_PATTERN),
@@ -40,6 +48,8 @@ export const pilotSchema = z.strictObject({
   /** Optional fields implemented by this Pilot on top of the shared schema. */
   schemaExtensions: z.array(fieldSpecSchema).default([]),
   artifact: scriptArtifactSchema,
+  /** Environment variables required by an official API integration. Values are never stored. */
+  credentials: z.array(credentialRequirementSchema).optional(),
   /**
    * Fields the explorer noticed but could not extract reliably enough to add to
    * this Pilot's schema. Reliably extracted optional fields are promoted into

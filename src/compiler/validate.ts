@@ -75,6 +75,8 @@ export async function validateScript(input: {
   query: ScriptQuery;
   /** Re-run with a different query to prove the script reads it. Default true. */
   probe?: boolean;
+  /** Secrets are inputs, but must never be mutated, logged or included in probe evidence. */
+  sensitiveQueryKeys?: readonly string[];
   timeoutMs?: number;
   onLog?: (message: string) => void;
 }): Promise<ValidationReport> {
@@ -84,6 +86,9 @@ export async function validateScript(input: {
   }
 
   const dir = mkdtempSync(path.join(tmpdir(), "pilot-validate-"));
+  const sensitiveValues = (input.sensitiveQueryKeys ?? [])
+    .map((key) => input.query[key])
+    .filter((value): value is string => typeof value === "string" && value.length > 0);
   try {
     writeFileSync(path.join(dir, "extract.mjs"), input.code);
 
@@ -109,6 +114,7 @@ export async function validateScript(input: {
       records = await runScript(candidate, dir, input.query, {
         timeoutMs: input.timeoutMs,
         onLog: input.onLog,
+        sensitiveValues,
       });
     } catch (cause) {
       const error = toPilotError(cause);
@@ -128,6 +134,7 @@ export async function validateScript(input: {
       candidate,
       dir,
       query: input.query,
+      excludedKeys: input.sensitiveQueryKeys,
       first: records,
       timeoutMs: input.timeoutMs,
       onLog: input.onLog,
@@ -201,9 +208,10 @@ export function varyValue(key: string, value: string): string {
  * everything at once: the route change alone makes the output differ, the
  * check passes, and every flight it ever returns is dated wrong.
  */
-export function probeKeys(query: ScriptQuery): string[] {
+export function probeKeys(query: ScriptQuery, excludedKeys: readonly string[] = []): string[] {
+  const excluded = new Set(excludedKeys);
   const keys = Object.entries(query)
-    .filter(([, value]) => typeof value === "string" && value.trim() !== "")
+    .filter(([key, value]) => !excluded.has(key) && typeof value === "string" && value.trim() !== "")
     .map(([key]) => key);
   const isDate = (key: string) => ISO_DATE.test(String(query[key]));
   return [...keys.filter(isDate), ...keys.filter((key) => !isDate(key))].slice(0, MAX_PROBES);
@@ -228,6 +236,7 @@ async function probeEachKey(input: {
   dir: string;
   query: ScriptQuery;
   first: RawRecord[];
+  excludedKeys?: readonly string[];
   timeoutMs?: number;
   onLog?: (message: string) => void;
 }): Promise<ProbeOutcome> {
@@ -235,7 +244,7 @@ async function probeEachKey(input: {
   if (input.first.length === 0) return outcome;
 
   const skipped: string[] = [];
-  for (const key of probeKeys(input.query)) {
+  for (const key of probeKeys(input.query, input.excludedKeys)) {
     const probe = probeQuery(input.query, key);
     input.onLog?.(`probing ${key}: ${JSON.stringify(input.query[key])} → ${JSON.stringify(probe[key])}`);
     // Spaced, because the sites most worth checking are the ones that throttle.
@@ -246,6 +255,9 @@ async function probeEachKey(input: {
       const again = await runScript(input.candidate, input.dir, probe, {
         timeoutMs: input.timeoutMs,
         onLog: input.onLog,
+        sensitiveValues: (input.excludedKeys ?? [])
+          .map((excluded) => input.query[excluded])
+          .filter((value): value is string => typeof value === "string" && value.length > 0),
       });
       outcome.ran = true;
       // Different answer — or no answer, which means the site was asked and had

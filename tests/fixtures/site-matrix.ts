@@ -5,6 +5,8 @@ export interface MatrixSite {
   /** Sample keyword used when the operation really is a search. */
   query?: string;
   contentType: "html" | "json";
+  /** A reviewed official/public API should compile to direct HTTP, never a browser. */
+  expectedTransport?: "http";
   /** Human-auditable reason this source belongs in an automated live test. */
   access: string;
   policyUrl: string;
@@ -43,6 +45,7 @@ export const SITE_MATRIX: readonly MatrixGroup[] = [
         url: "https://www.arbeitnow.com/api/job-board-api",
         query: "developer",
         contentType: "json",
+        expectedTransport: "http",
         access: "Public HTTPS job feed with no authentication.",
         policyUrl: "https://documenter.getpostman.com/view/18545278/UVJbJdKh",
       },
@@ -64,6 +67,7 @@ export const SITE_MATRIX: readonly MatrixGroup[] = [
         name: "Open Library subject catalog",
         url: "https://openlibrary.org/subjects/science_fiction.json?limit=20",
         contentType: "json",
+        expectedTransport: "http",
         access: "Documented public JSON API; this suite stays within its low-volume default limit.",
         policyUrl: "https://openlibrary.org/developers/api",
       },
@@ -85,6 +89,7 @@ export const SITE_MATRIX: readonly MatrixGroup[] = [
         name: "DummyJSON quotes",
         url: "https://dummyjson.com/quotes?limit=30",
         contentType: "json",
+        expectedTransport: "http",
         access: "Free fake REST dataset documented for testing and prototyping.",
         policyUrl: "https://dummyjson.com/docs/quotes",
       },

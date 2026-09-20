@@ -175,6 +175,23 @@ export class Registry {
   }
 
   /**
+   * Remove one exact version published by this caller.
+   *
+   * The publisher condition is intentional: acceptance tests use unique Pilot
+   * ids and publishers, and cleanup must never be able to erase somebody
+   * else's package if an id is mistyped or unexpectedly collides.
+   */
+  async unpublish(pilotId: string, version: string): Promise<boolean> {
+    const result = await this.entries().deleteOne({
+      _id: `${pilotId}@${version}`,
+      pilotId,
+      version,
+      publisher: this.env.publisher,
+    });
+    return result.deletedCount === 1;
+  }
+
+  /**
    * Publish a capability definition. Idempotent per schema revision, so the
    * same definition can be pushed alongside every Pilot that implements it
    * without accumulating duplicates.

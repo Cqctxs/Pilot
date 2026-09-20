@@ -16,6 +16,10 @@ METHOD
 3. Call requests. If a JSON response carries the records, that is almost always
    the better target: it is faster, more stable, and survives redesigns. Write a
    script that calls it directly and set needsBrowser to false.
+   If the reference notes name an official API, prefer it over scraping. Any
+   required credential is available only through the named query field (for
+   example query.GEOAPIFY_API_KEY); use it only in the official API request and
+   never hardcode, log, or return it.
 4. Otherwise find a row selector and verify it with find. One match per record.
    Prefer stable structural selectors and semantic tags over class names that
    look randomly generated (e.g. "css-1x2y3z" will not survive a deploy).
@@ -60,6 +64,10 @@ Rules for the script:
 - Every timeout you set is paid on every future search, not just this one. Keep
   them tight. A wait that usually does nothing is still a cost you are choosing.
 - If needsBrowser is false, page is null. Use fetch. Send a browser User-Agent.
+- API credentials are secrets supplied in query under their documented
+  uppercase environment-variable names. Never include a secret in a URL unless
+  that official API specifically requires a query parameter; prefer an
+  Authorization header, and never put secrets in returned records or errors.
 - Paginate at most 3 pages, and stop early when a page yields nothing.
 - Do NOT make one request per record to fill in an optional field. A search that
   fires thirty detail requests gets rate limited, and it is slow. Take what the
@@ -109,6 +117,10 @@ METHOD
 3. Call requests. If a JSON response carries the records, that is almost always
    the better target: it is faster, more stable, and survives redesigns. Write a
    script that calls it directly and set needsBrowser to false.
+   If the reference notes name an official API, prefer it over scraping. Any
+   required credential is available only through the named query field (for
+   example query.GEOAPIFY_API_KEY); use it only in the official API request and
+   never hardcode, log, or return it.
 4. Otherwise find a row selector and verify it with find. One match per record.
    Prefer stable structural selectors and semantic tags over class names that
    look randomly generated (e.g. "css-1x2y3z" will not survive a deploy).
@@ -205,7 +217,10 @@ WHAT MAKES IT GOOD
 - It is self-contained: no imports, no require, no filesystem, no unbounded
   loops, at most 3 pages.
 - When needsBrowser is false, page is null and you use fetch instead, with a
-  browser User-Agent. The same principles apply.`;
+  browser User-Agent. The same principles apply.
+- API credentials arrive only through their documented uppercase query fields.
+  Use them only for the official API request; never hardcode, log, return, or
+  expose them in an error.`;
 
 export type PromptStyle = "strict" | "guided";
 

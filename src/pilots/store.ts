@@ -16,6 +16,7 @@ export interface LoadedPilot {
   pilot: Pilot;
   config: PilotConfig;
   dir: string;
+  projectRoot: string;
 }
 
 export class PilotStore {
@@ -190,7 +191,7 @@ export class PilotStore {
           enabled: true,
           variables: {},
         };
-        out.set(pilot.id, { pilot, config, dir });
+        out.set(pilot.id, { pilot, config, dir, projectRoot: this.env.projectRoot });
       } catch (cause) {
         process.stderr.write(`warning: skipping ${file}: ${(cause as Error).message}\n`);
       }

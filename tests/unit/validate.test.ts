@@ -10,12 +10,26 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkScriptSource, judge } from "../../src/compiler/validate.js";
+import { checkScriptSource, judge, probeKeys } from "../../src/compiler/validate.js";
 import { JOBS_SCHEMA } from "../../src/capability/jobs.js";
 import type { DataSchema } from "../../src/shared/schema.js";
 import { findProjectRoot } from "../../src/shared/env.js";
 
 const root = findProjectRoot();
+
+it("never mutates or reports credential query keys during probes", () => {
+  expect(
+    probeKeys(
+      {
+        keywords: "hotels",
+        location: "Toronto",
+        limit: null,
+        GEOAPIFY_API_KEY: "super-secret",
+      },
+      ["GEOAPIFY_API_KEY"],
+    ),
+  ).toEqual(["keywords", "location"]);
+});
 
 /** What the model actually submitted, trimmed to five records. */
 const FABRICATED = `export async function search(page, query) {

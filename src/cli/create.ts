@@ -13,6 +13,12 @@ import { flagNumber, flagString, type ParsedArgs } from "./args.js";
 import { Registry, withRegistry } from "../registry/client.js";
 import type { CapabilityEntry, RegistryEntry } from "../registry/types.js";
 import { installPilotPackage } from "./packages.js";
+import {
+  apiIntegrationFor,
+  apiReferenceNotes,
+  combineReferenceNotes,
+  credentialValues,
+} from "../integrations/apis.js";
 
 /** `indeed.com` → `indeed`, `www.talent.com` → `talent`. */
 function deriveId(url: string): string {
@@ -100,6 +106,8 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     process.stderr.write(`Invalid Pilot id "${id}". Use lowercase letters, digits and dashes.\n`);
     return 1;
   }
+  const apiIntegration = apiIntegrationFor(url);
+  let apiCredentials: Record<string, string> | null = null;
 
   // Reuse before compiling. A Pilot for this capability that already covers
   // this host is the same artifact a compile would produce, minus the model
@@ -169,6 +177,13 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
       );
       return 0;
     }
+  }
+
+  // Missing official-API credentials are actionable without a model call.
+  // Exact local/registry reuse was allowed first because an existing Pilot may
+  // not need the newly catalogued API at all.
+  if (automaticCapability && apiIntegration) {
+    apiCredentials = credentialValues(apiIntegration.credentials, env);
   }
 
   if (automaticCapability) {
@@ -291,11 +306,34 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
 
   // Prior knowledge, when the caller has some. Fetched before the browser
   // opens so a bad reference fails in a second rather than mid-compile.
+  apiCredentials ??= apiIntegration
+    ? credentialValues(apiIntegration.credentials, env)
+    : {};
   let notes = null;
   if (skillRef) {
     const { fetchSkillNotes } = await import("../compiler/skills.js");
     notes = await fetchSkillNotes(skillRef);
     process.stderr.write(`  reference notes: ${notes.source} (${notes.markdown.length} bytes)\n`);
+  } else {
+    process.stderr.write(`  checking browse.sh for prior site knowledge\n`);
+    try {
+      const { findSkillNotesForUrl } = await import("../compiler/skills.js");
+      notes = await findSkillNotesForUrl(url, capability);
+      process.stderr.write(
+        notes
+          ? `  reference notes: ${notes.source} (${notes.markdown.length} bytes, automatic)\n`
+          : `  no unambiguous browse.sh skill; exploring directly\n`,
+      );
+    } catch (cause) {
+      const error = toPilotError(cause);
+      process.stderr.write(`  browse.sh unavailable (${error.code}); exploring directly\n`);
+    }
+  }
+  if (apiIntegration) {
+    notes = combineReferenceNotes(notes, apiReferenceNotes(apiIntegration));
+    process.stderr.write(
+      `  official API: ${apiIntegration.name} (${apiIntegration.credentials.length === 0 ? "no key required" : `credentials from ${apiIntegration.credentials.map((item) => item.env).join(", ")}`})\n`,
+    );
   }
 
   const result = await compile({
@@ -306,9 +344,12 @@ export async function runCreate(env: PilotEnv, args: ParsedArgs): Promise<number
     capability,
     schema,
     capabilitySchemaVersion,
+    credentials: apiIntegration?.credentials ?? [],
+    requireHttp: apiIntegration !== null,
     query: {
       keywords: flagString(args, "query") ?? "",
       location: flagString(args, "location") ?? "",
+      ...apiCredentials,
     },
     maxAttempts: flagNumber(args, "attempts"),
     maxSteps: flagNumber(args, "steps"),

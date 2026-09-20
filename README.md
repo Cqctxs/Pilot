@@ -170,14 +170,37 @@ to fetch the same exact Pilot versions and their capability definitions. Use
 was introduced.
 
 The shortest creation flow is just `pilot create <url>`. Pilot first installs an
-exact published match without a model call. Otherwise it reads the page and
+exact published match without a model call. Otherwise it reads the page,
 compares the operation with the capability definitions installed locally and
-published in the registry. A matching shared interface is reused (for example,
-a second book catalogue can implement `books.list@1`); if none fits, the model
-names and designs a new generic capability before compiling the tested script.
-Use `--capability` only to override that choice, and `--fields` for deliberately
-ad-hoc extraction. `--compile` bypasses script reuse but still reuses the shared
-capability contract.
+published in the registry, and checks browse.sh for verified prior knowledge
+about that site. One unambiguous skill is included automatically; no match,
+ambiguity or catalogue outage falls back to normal exploration. A matching
+shared interface is reused (for example, a second book catalogue can implement
+`books.list@1`); if none fits, the model names and designs a new generic
+capability before compiling the tested script. Use `--from-skill` to pin a
+specific browse.sh skill or local notes file, `--capability` to override the
+interface choice, and `--fields` for deliberately ad-hoc extraction. `--compile`
+bypasses script reuse but still reuses the shared capability contract and checks
+for prior site knowledge.
+
+For reviewed sites with official APIs, Pilot supplies the API documentation to
+the compiler and requires a direct HTTP Pilot (`needsBrowser: false`). Public
+APIs such as Open Library, Arbeitnow and DummyJSON need no setup. Authenticated
+integrations currently include Geoapify. If a required value is
+missing, `pilot create` stops before compilation and prints the signup URL, the
+exact variable name, and the absolute project `.env` path, for example:
+
+```text
+API_CREDENTIAL_REQUIRED: This integration uses an official API and needs GEOAPIFY_API_KEY.
+Create credentials at: https://myprojects.geoapify.com/register
+Add this entry to C:\Projects\my-app\.env:
+GEOAPIFY_API_KEY=
+```
+
+The value is made available to the generated script as
+`query.GEOAPIFY_API_KEY`; it is never stored in `pilot.json`, model prompts,
+logs, validation probes or registry documents. The Pilot manifest records only
+the requirement so another developer gets the same setup instructions.
 
 ### Live cross-site capability matrix
 
@@ -189,12 +212,27 @@ that each pair shares one capability while unrelated categories remain separate:
 - books: Books to Scrape and Open Library's public subject API;
 - quotes: Quotes to Scrape and DummyJSON's testing API.
 
+It also performs live, model-free automatic browse.sh lookups for Indeed and
+Booking.com, and requires the three reviewed JSON sources to compile to direct
+HTTP Pilots rather than browser automation.
+
 The three HTML sources are scraping-practice sites, and the JSON sources document
 public no-key access. A preflight rejects HTTP errors, blocks and unexpected
-content types before model compilation starts. The suite never connects to the
-Pilot registry, never publishes, runs sites sequentially, and is excluded from
-both normal tests and `test:live`. It still spends model credits and can take
-several minutes per pair.
+content types before model compilation starts. The suite runs sites sequentially
+and is excluded from both normal tests and `test:live`. It still spends model
+credits and can take several minutes per pair.
+
+After compiling, the suite publishes each script under a unique run-scoped Pilot
+id, starts a second empty project with the AI key and model removed, and runs
+`create` against the same URLs. Those calls must install the byte-identical
+scripts from MongoDB and print `no model call`; the installed Pilots are then run
+together through the SDK. A `finally` cleanup removes only the exact published
+versions owned by that run's unique publisher. Capability documents are not
+published by this acceptance test, so it cannot overwrite a shared interface.
+`PILOT_REGISTRY_URI` is therefore required in addition to the compiler settings.
+Normal failures still run cleanup; forcibly killing Node cannot run `finally`,
+so any orphan is recognizable by its `matrix-...` Pilot id and
+`pilot-matrix-...` publisher.
 
 ```powershell
 npm run test:matrix

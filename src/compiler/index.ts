@@ -15,7 +15,7 @@ import {
   type DataSchema,
   type RawRecord,
 } from "../shared/schema.js";
-import type { Pilot } from "../shared/pilot.js";
+import type { CredentialRequirement, Pilot } from "../shared/pilot.js";
 import type { ScriptQuery } from "../runtime/script.js";
 import { pilotError } from "../shared/errors.js";
 import { loadEnv, type PilotEnv } from "../shared/env.js";
@@ -31,6 +31,7 @@ import {
 } from "./prompts.js";
 import { validateScript, type ProbeOutcome } from "./validate.js";
 import type { SkillNotes } from "./skills.js";
+import { apiIntegrationFor, apiReferenceNotes, credentialValues } from "../integrations/apis.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_MAX_STEPS = 30;
@@ -52,6 +53,10 @@ export interface CompileOptions {
   promptStyle?: PromptStyle;
   /** Prior knowledge about the site, e.g. a browse.sh SKILL.md. */
   notes?: SkillNotes | null;
+  /** Named environment values used by an official API. Values live in query, never here. */
+  credentials?: readonly CredentialRequirement[];
+  /** A reviewed official API exists; browser automation is not an acceptable artifact. */
+  requireHttp?: boolean;
   env?: PilotEnv;
   onProgress?: (message: string) => void;
 }
@@ -83,6 +88,8 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
       maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
       promptStyle: options.promptStyle,
+      sensitiveQueryKeys: options.credentials?.map((item) => item.env) ?? [],
+      requireHttp: options.requireHttp ?? false,
       firstPrompt: buildTaskPrompt({
         url: options.url,
         schema: options.schema,
@@ -108,6 +115,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
         entry: "extract.mjs",
         needsBrowser: session.needsBrowser,
       },
+      credentials: [...(options.credentials ?? [])],
       discovered: session.discovered,
       origin: "ai-generated",
       createdAt: now,
@@ -153,10 +161,12 @@ export async function repair(options: {
   const env = options.env ?? loadEnv();
   const model = createModelClient(env);
   const progress = options.onProgress ?? (() => {});
-  const query = buildQuery(options.query);
+  const requirements = options.pilot.credentials ?? [];
+  const query = buildQuery({ ...options.query, ...credentialValues(requirements, env) });
   const baseSchema = options.baseSchema ?? options.pilot.schema;
   const previousExtensions = schemaDifference(baseSchema, options.pilot.schema);
   const startingSchema = extendDataSchema(baseSchema, previousExtensions).schema;
+  const apiIntegration = apiIntegrationFor(options.pilot.target.url);
 
   const explorer = await openExplorer();
   try {
@@ -171,12 +181,15 @@ export async function repair(options: {
       maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
       maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
       promptStyle: options.promptStyle,
+      sensitiveQueryKeys: requirements.map((item) => item.env),
+      requireHttp: apiIntegration !== null,
       firstPrompt: `${buildRepairPrompt(options.previousCode, options.failure)}
 
 ${buildTaskPrompt({
   url: options.pilot.target.url,
   schema: startingSchema,
   sampleQuery: describeQuery(query),
+  notes: apiIntegration ? apiReferenceNotes(apiIntegration) : null,
 })}`,
     });
 
@@ -244,6 +257,8 @@ async function runSession(input: {
   maxSteps: number;
   firstPrompt: string;
   promptStyle?: PromptStyle;
+  sensitiveQueryKeys?: readonly string[];
+  requireHttp: boolean;
 }): Promise<SessionResult> {
   const messages: TranscriptItem[] = [
     { role: "system", content: systemPrompt(input.promptStyle) },
@@ -284,6 +299,11 @@ async function runSession(input: {
         if (call.args.notes) input.progress(`model: ${String(call.args.notes)}`);
         input.progress(`validating submitted script (attempt ${attempts}/${input.maxAttempts})`);
 
+        if (input.requireHttp && needsBrowser) {
+          extension.problems.push(
+            "This site has a reviewed official API. Submit a direct fetch-based script with needsBrowser=false instead of browser automation.",
+          );
+        }
         const report = extension.problems.length > 0
           ? { ok: false, records: [], problems: extension.problems, probe: { ran: false, readKeys: [], unreadKeys: [] } }
           : await validateScript({
@@ -293,6 +313,7 @@ async function runSession(input: {
               pilotId: input.pilotId,
               targetUrl: input.targetUrl,
               query: input.query,
+              sensitiveQueryKeys: input.sensitiveQueryKeys,
               onLog: (message) => input.progress(`  ${message}`),
             });
 

@@ -7,6 +7,7 @@
 import type { LoadedPilot } from "../pilots/store.js";
 import type { RawRecord, RawValue } from "../shared/schema.js";
 import { runScript, type ScriptQuery } from "./script.js";
+import { credentialValues } from "../integrations/apis.js";
 
 export interface ExecuteOptions {
   query?: Partial<ScriptQuery>;
@@ -18,17 +19,22 @@ export async function executePilot(
   loaded: LoadedPilot,
   options: ExecuteOptions = {},
 ): Promise<RawRecord[]> {
+  const credentials = credentialValues(loaded.pilot.credentials ?? [], {
+    projectRoot: loaded.projectRoot,
+  });
   const query: ScriptQuery = {
     keywords: "",
     location: "",
     limit: null,
     ...loaded.config.variables,
     ...options.query,
+    ...credentials,
   };
 
   const records = await runScript(loaded.pilot, loaded.dir, query, {
     timeoutMs: options.timeoutMs,
     onLog: options.onLog,
+    sensitiveValues: Object.values(credentials),
   });
 
   return records.map((record) => coerce(record, loaded));

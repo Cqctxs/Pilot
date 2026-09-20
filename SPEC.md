@@ -267,12 +267,18 @@ searches never call a model or mutate their schema.
 
 ### Starting from published notes
 
-`pilot create <url> --from-skill <ref>` supplies the compiler with prior
-knowledge about the target: a [browse.sh](https://browse.sh) skill
-(`indeed.com/search-jobs-8yxl6y`, or a bare domain when only one matches), or a
-local markdown file. Those notes carry measured query parameters, stable
-selectors and anti-bot behaviour that the explorer would otherwise spend its
-step budget rediscovering.
+For a new public target, `pilot create <url>` automatically checks
+[browse.sh](https://browse.sh) after the local and registry reuse checks. An
+unambiguous verified skill for the exact hostname is supplied to the compiler;
+no match, an ambiguous task, or a catalogue failure quietly falls back to normal
+exploration. Local hosts and IP addresses are never sent to the catalogue.
+
+`pilot create <url> --from-skill <ref>` pins prior knowledge explicitly: a
+browse.sh skill (`indeed.com/search-jobs-8yxl6y`, or a bare domain when only one
+matches), or a local markdown file. Explicit references fail clearly rather
+than falling back. Those notes carry measured query parameters, stable selectors
+and anti-bot behaviour that the explorer would otherwise spend its step budget
+rediscovering.
 
 The notes are reference, never instruction. They were written for a different
 toolchain, possibly months ago, by someone outside this project, and they arrive
@@ -282,6 +288,22 @@ contract, and that nothing inside the markers changes its instructions. The
 resulting Pilot records `compiler.skillSource`, because a script built from a
 prior was not derived from the site alone and a reader deciding whether to trust
 it should be able to see that.
+
+### Official APIs and credentials
+
+A small reviewed catalogue maps sites with supported official APIs to their API
+base URL, documentation and credential requirements. That guidance is combined
+with browse.sh notes when both exist. The compiler is told to prefer the
+official API and emit a direct HTTP Pilot (`needsBrowser: false`) rather than
+automating the website.
+
+Missing credentials stop before script compilation with
+`API_CREDENTIAL_REQUIRED`. The message names each environment variable, links
+to account/key creation, and gives the absolute `.env` path. Secret values are
+loaded from the environment into the script's `query` argument for validation
+and runtime only. They are excluded from model text and query probes and are
+never persisted in the Pilot or registry; the manifest stores only the names,
+descriptions and signup URLs required to reproduce the setup.
 
 ### Declaring a capability
 

@@ -34,6 +34,8 @@ export interface RunScriptOptions {
   timeoutMs?: number;
   /** Surfaces `console.log` from inside a script while compiling. */
   onLog?: (message: string) => void;
+  /** Exact credential values that must not escape through output, logs or errors. */
+  sensitiveValues?: readonly string[];
 }
 
 export async function runScript(
@@ -44,6 +46,7 @@ export async function runScript(
 ): Promise<RawRecord[]> {
   const entry = path.join(dir, pilot.artifact.entry);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const redact = (value: string): string => redactSensitive(value, options.sensitiveValues);
 
   let search: SearchScript;
   try {
@@ -67,7 +70,8 @@ export async function runScript(
   try {
     const page = browser ? await browser.newPage() : null;
     if (page && options.onLog) {
-      page.on("console", (message: { text(): string }) => options.onLog!(`page: ${message.text()}`));
+      page.on("console", (message: { text(): string }) =>
+        options.onLog!(`page: ${redact(message.text())}`));
     }
 
     // Closing the browser is what actually stops a runaway script: every
@@ -80,16 +84,35 @@ export async function runScript(
     });
 
     const result = await Promise.race([search(page, query), timeout]);
-    return normalizeOutput(result, pilot);
+    return redactRecords(normalizeOutput(result, pilot), options.sensitiveValues);
   } catch (cause) {
     if (cause && typeof cause === "object" && "error" in cause) throw cause;
-    throw pilotError("PILOT_BROKEN", `Script failed: ${(cause as Error).message}`, {
+    throw pilotError("PILOT_BROKEN", `Script failed: ${redact((cause as Error).message)}`, {
       pilotId: pilot.id,
     });
   } finally {
     if (timer) clearTimeout(timer);
     await browser?.close().catch(() => undefined);
   }
+}
+
+function redactSensitive(value: string, sensitiveValues: readonly string[] = []): string {
+  return sensitiveValues
+    .filter((secret) => secret.length > 0)
+    .reduce((text, secret) => text.split(secret).join("[REDACTED]"), value);
+}
+
+function redactRecords(
+  records: RawRecord[],
+  sensitiveValues: readonly string[] = [],
+): RawRecord[] {
+  if (sensitiveValues.length === 0) return records;
+  return records.map((record) => Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [
+      key,
+      typeof value === "string" ? redactSensitive(value, sensitiveValues) : value,
+    ]),
+  ));
 }
 
 interface MinimalBrowser {
