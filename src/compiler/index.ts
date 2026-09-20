@@ -17,7 +17,13 @@ import { loadEnv, type PilotEnv } from "../shared/env.js";
 import { createModelClient, type ModelClient } from "./model.js";
 import { openExplorer, type Explorer } from "./explorer.js";
 import { EXPLORER_TOOLS } from "./tools.js";
-import { buildRepairPrompt, buildRetryPrompt, buildTaskPrompt, SYSTEM_PROMPT } from "./prompts.js";
+import {
+  buildRepairPrompt,
+  buildRetryPrompt,
+  buildTaskPrompt,
+  systemPrompt,
+  type PromptStyle,
+} from "./prompts.js";
 import { validateScript } from "./validate.js";
 
 export const DEFAULT_MAX_ATTEMPTS = 3;
@@ -34,6 +40,8 @@ export interface CompileOptions {
   maxAttempts?: number;
   maxSteps?: number;
   headless?: boolean;
+  /** Which system prompt to compile with. Defaults to the configured style. */
+  promptStyle?: PromptStyle;
   env?: PilotEnv;
   onProgress?: (message: string) => void;
 }
@@ -64,6 +72,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       query,
       maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
       maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
+      promptStyle: options.promptStyle,
       firstPrompt: buildTaskPrompt({
         url: options.url,
         schema: options.schema,
@@ -113,6 +122,7 @@ export async function repair(options: {
   query?: Partial<ScriptQuery>;
   maxAttempts?: number;
   maxSteps?: number;
+  promptStyle?: PromptStyle;
   env?: PilotEnv;
   onProgress?: (message: string) => void;
 }): Promise<CompileResult> {
@@ -133,6 +143,7 @@ export async function repair(options: {
       query,
       maxAttempts: options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS,
       maxSteps: options.maxSteps ?? DEFAULT_MAX_STEPS,
+      promptStyle: options.promptStyle,
       firstPrompt: `${buildRepairPrompt(options.previousCode, options.failure)}
 
 ${buildTaskPrompt({
@@ -191,9 +202,10 @@ async function runSession(input: {
   maxAttempts: number;
   maxSteps: number;
   firstPrompt: string;
+  promptStyle?: PromptStyle;
 }): Promise<SessionResult> {
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt(input.promptStyle) },
     { role: "user", content: input.firstPrompt },
   ];
 

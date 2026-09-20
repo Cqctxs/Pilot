@@ -29,6 +29,72 @@ const STYLE = [
   "table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:.6rem;border-bottom:1px solid #e3e3e3}",
 ].join("\n");
 
+/**
+ * The same catalogue, served the way a hostile real site serves it.
+ *
+ * Results are injected by script after a delay, so `domcontentloaded` alone is
+ * not enough: a script that reads the page immediately gets zero rows. That is
+ * the behaviour that matters, and it is deterministic.
+ *
+ * The beacon loop imitates the analytics chatter of a real board. Note that it
+ * does NOT stop Playwright's `networkidle` from settling — that was the
+ * original intent and it does not work; measured against a live site,
+ * networkidle timed out at its full 10s, but a scripted fetch loop locally does
+ * not reproduce that. Whether a compiled script waits on `networkidle` is
+ * therefore measured by reading the emitted script, not by timing it.
+ */
+export function renderHostilePage(
+  jobs: TestJob[],
+  keywords: string,
+  location: string,
+  delayMs: number,
+): string {
+  const payload = JSON.stringify(
+    jobs.map((job) => ({
+      id: job.id,
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      employmentType: job.employmentType,
+      postedAt: job.postedAt,
+    })),
+  );
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Test Board — Open roles</title><style>${STYLE}</style></head>
+<body>
+  <h1>Open roles</h1>
+  <form method="get" action="/jobs">
+    <input name="q" placeholder="Keywords" value="${escapeHtml(keywords)}">
+    <input name="loc" placeholder="Location" value="${escapeHtml(location)}">
+    <button type="submit">Search</button>
+  </form>
+  <div id="results"></div>
+  <script>
+    // Continuous overlapping requests, the way real analytics and ad refresh
+    // behave. Keeps the page genuinely busy while the results are pending.
+    setInterval(() => { fetch('/beacon').then(r => r.json()).catch(() => {}); }, 150);
+    const jobs = ${payload};
+    setTimeout(() => {
+      const host = document.getElementById('results');
+      if (!jobs.length) {
+        host.innerHTML = '<p class="no-results">No roles match your search.</p>';
+        return;
+      }
+      host.innerHTML = '<p class="result-count">' + jobs.length + ' results</p>' + jobs.map((job) =>
+        '<article class="job-card">' +
+          '<h2><a href="/jobs/' + job.id + '">' + job.title + '</a></h2>' +
+          '<p class="meta">' +
+            '<span class="company">' + job.company + '</span> ' +
+            '<span class="location">' + (job.location || '') + '</span> ' +
+            '<span class="type">' + (job.employmentType || '') + '</span> ' +
+            '<time datetime="' + job.postedAt + '">' + job.postedAt + '</time>' +
+          '</p>' +
+        '</article>').join('');
+    }, ${delayMs});
+  </script>
+</body></html>`;
+}
+
 export function renderSearchPage(
   jobs: TestJob[],
   layout: Layout,

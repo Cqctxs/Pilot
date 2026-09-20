@@ -32,6 +32,9 @@ const FORBIDDEN = [
   { pattern: /node:|child_process|\bfs\b/, message: "references Node built-ins" },
 ];
 
+/** Any way a script could legitimately reach the site. */
+const CONTACTS_SITE = /page\s*\.\s*goto\s*\(|\bfetch\s*\(|page\s*\.\s*request\b/;
+
 export function checkScriptSource(code: string): string[] {
   const problems: string[] = [];
   if (!/export\s+(async\s+)?function\s+search\s*\(/.test(code)) {
@@ -39,6 +42,17 @@ export function checkScriptSource(code: string): string[] {
   }
   for (const rule of FORBIDDEN) {
     if (rule.pattern.test(code)) problems.push(`Script ${rule.message}.`);
+  }
+  // A script that never contacts the site cannot be extracting anything from
+  // it. Observed for real: told that a site was behind Cloudflare, the model
+  // pasted the listings it had seen while exploring into an array literal and
+  // submitted that. It satisfied every shape check, because the shape was
+  // right — it was the provenance that was fake.
+  if (!CONTACTS_SITE.test(code)) {
+    problems.push(
+      "Script never contacts the site — no page.goto, fetch or page.request. " +
+        "Records must be read from the live page, never written into the script.",
+    );
   }
   return problems;
 }
@@ -92,13 +106,44 @@ export async function validateScript(input: {
       return { ok: false, records: [], problems: [`${error.code}: ${error.message}`] };
     }
 
-    return { ...judge(records, input.schema), records };
+    return { ...judge(records, input.schema, input.code), records };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-function judge(records: RawRecord[], schema: DataSchema): { ok: boolean; problems: string[] } {
+/**
+ * Does the *data* live in the script?
+ *
+ * A real script names each field once or twice, where it maps the page onto the
+ * schema. A script with the records baked in names them once per record, so the
+ * count scales with the result set instead of staying constant. Measured on the
+ * four Pilots compiled so far: at most 3 occurrences regardless of whether the
+ * script returned 4 records or 59. A fabricated one matched its record count
+ * exactly.
+ *
+ * The `> 4` floor keeps a small genuine result set from tripping it.
+ */
+function looksFabricated(code: string, records: RawRecord[], schema: DataSchema): string | null {
+  for (const field of schema.fields.filter((item) => item.required)) {
+    const asKey = new RegExp(`["']?\\b${field.name}\\b["']?\\s*:`, "g");
+    const count = (code.match(asKey) ?? []).length;
+    if (count > 4 && count >= records.length) {
+      return (
+        `Script contains "${field.name}" as a literal key ${count} times for ${records.length} records. ` +
+        "The records are written into the script rather than read from the site. " +
+        "If the site cannot be reached, throw an error saying so — never return invented data."
+      );
+    }
+  }
+  return null;
+}
+
+function judge(
+  records: RawRecord[],
+  schema: DataSchema,
+  code: string,
+): { ok: boolean; problems: string[] } {
   const problems: string[] = [];
 
   if (records.length === 0) {
@@ -147,6 +192,9 @@ function judge(records: RawRecord[], schema: DataSchema): { ok: boolean; problem
   if (emptyish > records.length / 2) {
     problems.push("More than half the records are empty. The extraction is matching the wrong elements.");
   }
+
+  const fabricated = looksFabricated(code, records, schema);
+  if (fabricated) problems.push(fabricated);
 
   // Optional-field-only complaints are advisory; they should not block a Pilot
   // that otherwise works.

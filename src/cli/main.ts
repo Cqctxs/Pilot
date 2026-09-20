@@ -38,6 +38,8 @@ const HELP = `Pilot — compile any website into a reusable data API.
   pilot registry versions <id>  Published versions of one Pilot
   pilot registry health [id]    Success rate per Pilot, worst first
 
+  pilot promptlab [--runs n]    A/B the compiler's system prompts
+
   pilot mcp                     Serve Pilot over MCP (stdio) to Claude Code,
                                 Codex, or any other MCP client
 
@@ -93,6 +95,10 @@ async function main(): Promise<number> {
       const { runRegistry } = await import("./registry.js");
       return runRegistry(env, args);
     }
+    case "promptlab": {
+      const { runPromptLab } = await import("../promptlab/run.js");
+      return runPromptLab(flagNumber(args, "runs") ?? 3);
+    }
     case "mcp": {
       // Stdio transport: stdout is the JSON-RPC stream from here on. Anything
       // this process prints to it corrupts the protocol.
@@ -104,8 +110,16 @@ async function main(): Promise<number> {
       const { startTestBoard } = await import("../testboard/server.js");
       const port = flagNumber(args, "port") ?? env.testBoardPort;
       const layout = flagString(args, "layout") ?? "a";
-      await startTestBoard({ port, layout: layout === "b" ? "b" : "a" });
-      process.stdout.write(`Test board running at http://127.0.0.1:${port}/ (layout ${layout})\n`);
+      const hostile = args.flags.hostile === true;
+      await startTestBoard({
+        port,
+        layout: layout === "b" ? "b" : "a",
+        hostile,
+        hostileDelayMs: flagNumber(args, "delay"),
+      });
+      process.stdout.write(
+        `Test board running at http://127.0.0.1:${port}/ (layout ${layout}${hostile ? ", hostile" : ""})\n`,
+      );
       return -1; // keep the process alive
     }
     default:

@@ -15,7 +15,8 @@
     "testboard": "tsx src/cli/main.ts testboard",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "promptlab": "tsx src/cli/main.ts promptlab"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

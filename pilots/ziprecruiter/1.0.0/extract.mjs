@@ -15,17 +15,33 @@ export async function search(page, query) {
     const url = new URL(base.toString());
     if (p > 1) url.searchParams.set("page", String(p));
 
+    // Hand-edited after compiling: the generated script also waited for
+    // "networkidle", which this page never reaches (ads and analytics hold
+    // sockets open). It timed out at its full 10s on every run and three pages
+    // of it cost 30s per search, while the data is present ~11ms after
+    // domcontentloaded.
+    let ready = true;
     try {
       await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 45000 });
-      await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
       await page.waitForFunction(
         () => document.querySelector('article[id^="job-card-"]') ||
               [...document.scripts].some(s => (s.textContent || "").includes("jobKeysMap")) ||
               /no jobs|no results|0 jobs/i.test(document.body.innerText || ""),
         null,
-        { timeout: 20000 }
-      ).catch(() => {});
+        { timeout: 15000 }
+      );
     } catch (e) {
+      ready = false;
+    }
+
+    if (!ready) {
+      // Page 1 producing nothing means a challenge or a block, not an empty
+      // search. Fail loudly so it is recorded as PILOT_BROKEN and can be
+      // repaired, instead of being reported as a successful search that
+      // happened to find nothing.
+      if (p === 1) {
+        throw new Error("ZipRecruiter returned no results container (likely a Cloudflare challenge or block)");
+      }
       break;
     }
 
