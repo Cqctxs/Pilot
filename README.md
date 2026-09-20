@@ -179,6 +179,38 @@ Use `--capability` only to override that choice, and `--fields` for deliberately
 ad-hoc extraction. `--compile` bypasses script reuse but still reuses the shared
 capability contract.
 
+### Live cross-site capability matrix
+
+`npm run test:matrix` is an opt-in product acceptance suite. It starts with an
+isolated temporary Pilot project, compiles six free public sources, and checks
+that each pair shares one capability while unrelated categories remain separate:
+
+- jobs: Real Python's scraping-practice job board and Arbeitnow's public API;
+- books: Books to Scrape and Open Library's public subject API;
+- quotes: Quotes to Scrape and DummyJSON's testing API.
+
+The three HTML sources are scraping-practice sites, and the JSON sources document
+public no-key access. A preflight rejects HTTP errors, blocks and unexpected
+content types before model compilation starts. The suite never connects to the
+Pilot registry, never publishes, runs sites sequentially, and is excluded from
+both normal tests and `test:live`. It still spends model credits and can take
+several minutes per pair.
+
+```powershell
+npm run test:matrix
+
+# Run one pair while iterating:
+$env:PILOT_MATRIX_CATEGORY="books"  # jobs | books | quotes
+npm run test:matrix
+
+# Keep generated pilot.json, extract.mjs, samples and matrix-report.json:
+$env:PILOT_MATRIX_KEEP="1"
+npm run test:matrix
+```
+
+Clear those environment variables to return to the full temporary matrix. Set
+`PILOT_MATRIX_ROOT` to choose the parent directory for retained runs.
+
 ---
 
 ## For agents (MCP)

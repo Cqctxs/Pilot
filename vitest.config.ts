@@ -5,6 +5,6 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     // tests/live calls a real model and costs money: npm run test:live.
-    exclude: ["tests/live/**"],
+    exclude: ["tests/live/**", "tests/matrix/**"],
   },
 });
